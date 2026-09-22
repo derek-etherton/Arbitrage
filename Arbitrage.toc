@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: Arbitrage
+## Notes: Adds a "Disenchanting" tab to the Auction House for surfacing buy-to-disenchant profit opportunities.
+## Version: 0.1.0
+## SavedVariables: Arbitrage_Profile
+## RequiredDeps: Auctionator
+## OptionalDeps: DisenchantBuddy
+
+Libs\LibStub\LibStub.lua
+Libs\LibAHTab\LibAHTab.xml
+GameVersions.lua
+Arbitrage.lua
+Tabs\DisenchantingTab.lua
