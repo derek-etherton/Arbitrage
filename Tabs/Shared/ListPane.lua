@@ -10,6 +10,10 @@ local COLUMN_GAP = AH.COLUMN_GAP
 local LIST_CONTENT_WIDTH = AH.LIST_CONTENT_WIDTH
 local LIST_PANE_WIDTH = AH.LIST_PANE_WIDTH
 
+-- Each filter bar's rarity dropdown needs its own unique global frame name (UIDropDownMenuTemplate
+-- requirement), since more than one list pane instance can exist at once.
+local listPaneDropdownCounter = 0
+
 ---@param config table {profitListKey: string, valueLabel: string, emptyText: string, onRowClick: fun(entry: table)}
 ---@return table pane with .Create(frame) and .frame (set once Create runs)
 function AH.NewListPane(config)
@@ -222,6 +226,13 @@ function AH.NewListPane(config)
             end
         end
 
+        if filterState.minQuality then
+            local quality = select(3, C_Item.GetItemInfo(entry.itemId))
+            if quality and quality < filterState.minQuality then
+                return false
+            end
+        end
+
         if filterState.minItemLevel or filterState.maxItemLevel then
             local itemLevel = select(4, C_Item.GetItemInfo(entry.itemId))
             if itemLevel then
@@ -313,70 +324,7 @@ function AH.NewListPane(config)
         listView:SetWidth(LIST_PANE_WIDTH)
         pane.frame = listView
 
-        local header = CreateFrame("Frame", nil, listView)
-        header:SetPoint("TOPLEFT", listView, "TOPLEFT", 4, -4)
-        header:SetPoint("TOPRIGHT", listView, "TOPRIGHT", -4, -4)
-        header:SetHeight(ROW_HEIGHT)
-
-        local headerItem = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerItem:SetPoint("LEFT", header, "LEFT", 22, 0)
-        headerItem:SetWidth(ITEM_NAME_WIDTH)
-        headerItem:SetJustifyH("LEFT")
-        headerItem:SetText("Item")
-
-        local headerBuyout = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerBuyout:SetPoint("LEFT", headerItem, "RIGHT", COLUMN_GAP, 0)
-        headerBuyout:SetWidth(VALUE_COL_WIDTH)
-        headerBuyout:SetJustifyH("LEFT")
-        headerBuyout:SetText("Buyout")
-
-        local headerValue = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerValue:SetPoint("LEFT", headerBuyout, "RIGHT", COLUMN_GAP, 0)
-        headerValue:SetWidth(VALUE_COL_WIDTH)
-        headerValue:SetJustifyH("LEFT")
-        headerValue:SetText(config.valueLabel)
-
-        local headerProfitButton = CreateFrame("Button", nil, header)
-        headerProfitButton:SetPoint("LEFT", headerValue, "RIGHT", COLUMN_GAP, 0)
-        headerProfitButton:SetSize(VALUE_COL_WIDTH, ROW_HEIGHT)
-        headerProfitButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-        headerProfitButton:SetScript("OnClick", function() SetSortKey("profit") end)
-
-        local headerProfit = headerProfitButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerProfit:SetPoint("LEFT", headerProfitButton, "LEFT", 0, 0)
-        headerProfit:SetJustifyH("LEFT")
-        headerProfit:SetJustifyV("MIDDLE")
-        headerProfit:SetText("Profit")
-
-        -- Same atlas Blizzard's own AH and Auctionator use for sortable column headers.
-        headerProfitArrow = headerProfitButton:CreateTexture(nil, "OVERLAY")
-        headerProfitArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
-        headerProfitArrow:SetPoint("LEFT", headerProfit, "RIGHT", 3, 0)
-        headerProfitArrow:SetTexCoord(0, 1, 0, 1) -- points down; we only ever sort descending
-        headerProfitArrow:Hide()
-
-        local headerPercentButton = CreateFrame("Button", nil, header)
-        headerPercentButton:SetPoint("LEFT", headerProfitButton, "RIGHT", COLUMN_GAP, 0)
-        headerPercentButton:SetSize(PERCENT_COL_WIDTH, ROW_HEIGHT)
-        headerPercentButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-        headerPercentButton:SetScript("OnClick", function() SetSortKey("percent") end)
-
-        local headerPercent = headerPercentButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerPercent:SetPoint("LEFT", headerPercentButton, "LEFT", 0, 0)
-        headerPercent:SetJustifyH("LEFT")
-        headerPercent:SetJustifyV("MIDDLE")
-        headerPercent:SetText("%")
-
-        headerPercentArrow = headerPercentButton:CreateTexture(nil, "OVERLAY")
-        headerPercentArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
-        headerPercentArrow:SetPoint("LEFT", headerPercent, "RIGHT", 3, 0)
-        headerPercentArrow:SetTexCoord(0, 1, 0, 1)
-        headerPercentArrow:Hide()
-
-        UpdateSortHeaders()
-
-        local topAnchorFrame = header
-
+        local filterBar
         if config.filterSettingsKey then
             Arbitrage.Settings[config.filterSettingsKey] = Arbitrage.Settings[config.filterSettingsKey] or {
                 showArmor = true,
@@ -384,11 +332,10 @@ function AH.NewListPane(config)
             }
             filterState = Arbitrage.Settings[config.filterSettingsKey]
 
-            local filterBar = CreateFrame("Frame", nil, listView)
-            filterBar:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 4, -4)
-            filterBar:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", -4, -4)
-            filterBar:SetHeight(20)
-            topAnchorFrame = filterBar
+            filterBar = CreateFrame("Frame", nil, listView)
+            filterBar:SetPoint("TOPLEFT", listView, "TOPLEFT", 4, -4)
+            filterBar:SetPoint("TOPRIGHT", listView, "TOPRIGHT", -4, -4)
+            filterBar:SetHeight(32) -- tall enough for UIDropDownMenuTemplate's fixed-height art
 
             local armorCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
             armorCheck:SetPoint("LEFT", filterBar, "LEFT", 0, 0)
@@ -457,7 +404,121 @@ function AH.NewListPane(config)
             end
             maxLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
             maxLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
+
+            local rarityLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            rarityLabel:SetPoint("LEFT", maxLevelBox, "RIGHT", 16, 0)
+            rarityLabel:SetText("Rarity:")
+
+            -- UIDropDownMenuTemplate frames need a unique global name; a counter keeps multiple
+            -- list pane instances (if another tab ever opts into filters) from colliding.
+            listPaneDropdownCounter = listPaneDropdownCounter + 1
+            local rarityDropdown = CreateFrame("Frame", "ArbitrageListPaneRarityDropdown" .. listPaneDropdownCounter,
+                filterBar, "UIDropDownMenuTemplate")
+            rarityDropdown:SetPoint("LEFT", rarityLabel, "RIGHT", -8, -2)
+            UIDropDownMenu_SetWidth(rarityDropdown, 90)
+
+            local RARITY_OPTIONS = {
+                {text = "Any", value = nil},
+                {text = "Uncommon+", value = 2},
+                {text = "Rare+", value = 3},
+                {text = "Epic+", value = 4},
+                {text = "Legendary+", value = 5},
+            }
+
+            local function GetRarityOptionText(value)
+                for i = 1, #RARITY_OPTIONS do
+                    if RARITY_OPTIONS[i].value == value then
+                        return RARITY_OPTIONS[i].text
+                    end
+                end
+                return "Any"
+            end
+
+            UIDropDownMenu_Initialize(rarityDropdown, function(_, level)
+                for i = 1, #RARITY_OPTIONS do
+                    local option = RARITY_OPTIONS[i]
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = option.text
+                    info.value = option.value
+                    info.checked = (filterState.minQuality == option.value)
+                    info.func = function(button)
+                        filterState.minQuality = button.value
+                        UIDropDownMenu_SetText(rarityDropdown, GetRarityOptionText(button.value))
+                        currentPage = 1
+                        RefreshRows()
+                    end
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end)
+            UIDropDownMenu_SetText(rarityDropdown, GetRarityOptionText(filterState.minQuality))
         end
+
+        local header = CreateFrame("Frame", nil, listView)
+        if filterBar then
+            header:SetPoint("TOPLEFT", filterBar, "BOTTOMLEFT", 0, -4)
+            header:SetPoint("TOPRIGHT", filterBar, "BOTTOMRIGHT", 0, -4)
+        else
+            header:SetPoint("TOPLEFT", listView, "TOPLEFT", 4, -4)
+            header:SetPoint("TOPRIGHT", listView, "TOPRIGHT", -4, -4)
+        end
+        header:SetHeight(ROW_HEIGHT)
+
+        local headerItem = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerItem:SetPoint("LEFT", header, "LEFT", 22, 0)
+        headerItem:SetWidth(ITEM_NAME_WIDTH)
+        headerItem:SetJustifyH("LEFT")
+        headerItem:SetText("Item")
+
+        local headerBuyout = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerBuyout:SetPoint("LEFT", headerItem, "RIGHT", COLUMN_GAP, 0)
+        headerBuyout:SetWidth(VALUE_COL_WIDTH)
+        headerBuyout:SetJustifyH("LEFT")
+        headerBuyout:SetText("Buyout")
+
+        local headerValue = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerValue:SetPoint("LEFT", headerBuyout, "RIGHT", COLUMN_GAP, 0)
+        headerValue:SetWidth(VALUE_COL_WIDTH)
+        headerValue:SetJustifyH("LEFT")
+        headerValue:SetText(config.valueLabel)
+
+        local headerProfitButton = CreateFrame("Button", nil, header)
+        headerProfitButton:SetPoint("LEFT", headerValue, "RIGHT", COLUMN_GAP, 0)
+        headerProfitButton:SetSize(VALUE_COL_WIDTH, ROW_HEIGHT)
+        headerProfitButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        headerProfitButton:SetScript("OnClick", function() SetSortKey("profit") end)
+
+        local headerProfit = headerProfitButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerProfit:SetPoint("LEFT", headerProfitButton, "LEFT", 0, 0)
+        headerProfit:SetJustifyH("LEFT")
+        headerProfit:SetJustifyV("MIDDLE")
+        headerProfit:SetText("Profit")
+
+        -- Same atlas Blizzard's own AH and Auctionator use for sortable column headers.
+        headerProfitArrow = headerProfitButton:CreateTexture(nil, "OVERLAY")
+        headerProfitArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
+        headerProfitArrow:SetPoint("LEFT", headerProfit, "RIGHT", 3, 0)
+        headerProfitArrow:SetTexCoord(0, 1, 0, 1) -- points down; we only ever sort descending
+        headerProfitArrow:Hide()
+
+        local headerPercentButton = CreateFrame("Button", nil, header)
+        headerPercentButton:SetPoint("LEFT", headerProfitButton, "RIGHT", COLUMN_GAP, 0)
+        headerPercentButton:SetSize(PERCENT_COL_WIDTH, ROW_HEIGHT)
+        headerPercentButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        headerPercentButton:SetScript("OnClick", function() SetSortKey("percent") end)
+
+        local headerPercent = headerPercentButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerPercent:SetPoint("LEFT", headerPercentButton, "LEFT", 0, 0)
+        headerPercent:SetJustifyH("LEFT")
+        headerPercent:SetJustifyV("MIDDLE")
+        headerPercent:SetText("%")
+
+        headerPercentArrow = headerPercentButton:CreateTexture(nil, "OVERLAY")
+        headerPercentArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
+        headerPercentArrow:SetPoint("LEFT", headerPercent, "RIGHT", 3, 0)
+        headerPercentArrow:SetTexCoord(0, 1, 0, 1)
+        headerPercentArrow:Hide()
+
+        UpdateSortHeaders()
 
         local footer = CreateFrame("Frame", nil, listView)
         footer:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 4, 4)
@@ -494,7 +555,7 @@ function AH.NewListPane(config)
         pageLabel:SetJustifyH("CENTER")
 
         scrollFrame = CreateFrame("ScrollFrame", nil, listView, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", topAnchorFrame, "BOTTOMLEFT", 0, -4)
+        scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
         scrollFrame:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", -26, 4)
 
         scrollChild = CreateFrame("Frame", nil, scrollFrame)
