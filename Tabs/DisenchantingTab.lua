@@ -22,17 +22,110 @@ local function GetItemDisplayName(itemId, itemLink)
     return C_Item.GetItemInfo(itemId) or ("Item #" .. itemId)
 end
 
+-- Mirrors Auctionator's own Shopping-list click behavior: switch to Blizzard's native Buy tab
+-- and run a live, exact-item search so the actual current listings for this item are shown.
+local function ShowUnderlyingAuction(entry)
+    if AuctionHouseFrame.Tabs and AuctionHouseFrame.Tabs[1] then
+        AuctionHouseFrame.Tabs[1]:Click()
+    end
+
+    local itemKey = C_AuctionHouse.MakeItemKey(entry.itemId)
+    local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
+    if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
+        Auctionator.AH.SendSearchQueryByItemKey(itemKey, sorts, true)
+    else
+        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
+    end
+end
+
+local function ShowRowTooltip(row)
+    local entry = row.entry
+    if not entry then
+        return
+    end
+
+    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    if entry.itemLink then
+        GameTooltip:SetHyperlink(entry.itemLink)
+    else
+        GameTooltip:SetItemByID(entry.itemId)
+    end
+    GameTooltip:Show()
+end
+
+local function UpdateRowValueText(row, entry)
+    row.buyout:SetText(Arbitrage.FormatCoin(entry.buyout, 12))
+    row.profit:SetText((entry.profit >= 0 and "|cff1eff00" or "|cffff0000") .. Arbitrage.FormatCoin(entry.profit, 12) .. "|r")
+end
+
+-- The list's sort order and membership come from the last Auctionator scan, which can go stale
+-- (listings sell, get cancelled, etc.). Rather than re-scan or re-sort, we correct just the
+-- hovered row's numbers to the item's actual current cheapest listing - the AH only supports one
+-- active browse search at a time, so only one of these is ever in flight.
+local pendingRow, pendingEntry, pendingItemKey
+
+local function RequestLiveBuyout(row)
+    local entry = row.entry
+    if not entry then
+        return
+    end
+
+    pendingRow, pendingEntry = row, entry
+    pendingItemKey = C_AuctionHouse.MakeItemKey(entry.itemId)
+    local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
+    if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
+        Auctionator.AH.SendSearchQueryByItemKey(pendingItemKey, sorts, true)
+    else
+        C_AuctionHouse.SendSearchQuery(pendingItemKey, sorts, true)
+    end
+end
+
+local liveQueryFrame = CreateFrame("Frame")
+liveQueryFrame:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+liveQueryFrame:SetScript("OnEvent", function()
+    if not pendingItemKey or not C_AuctionHouse.HasFullBrowseResults() then
+        return
+    end
+
+    local row, entry = pendingRow, pendingEntry
+    pendingRow, pendingEntry, pendingItemKey = nil, nil, nil
+
+    if row.entry ~= entry then
+        -- Row was rebound to a different item (list refreshed) while the query was in flight.
+        return
+    end
+
+    local results = C_AuctionHouse.GetBrowseResults()
+    if not results or not results[1] or not results[1].minPrice then
+        -- Nothing currently listed; keep showing the last-known (stale) scan value.
+        return
+    end
+
+    entry.buyout = results[1].minPrice
+    entry.profit = entry.disenchantValue - entry.buyout
+    UpdateRowValueText(row, entry)
+end)
+
 local function GetOrCreateRow(index)
     local row = rowPool[index]
     if row then
         return row
     end
 
-    row = CreateFrame("Frame", nil, scrollChild)
+    row = CreateFrame("Button", nil, scrollChild)
     row:SetHeight(ROW_HEIGHT)
     row:SetPoint("LEFT", scrollChild, "LEFT", 0, 0)
     row:SetPoint("RIGHT", scrollChild, "RIGHT", 0, 0)
     row:SetPoint("TOP", scrollChild, "TOP", 0, -(index - 1) * ROW_HEIGHT)
+    row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    row:SetScript("OnEnter", function(self)
+        ShowRowTooltip(self)
+        RequestLiveBuyout(self)
+    end)
+    row:SetScript("OnLeave", GameTooltip_Hide)
+    row:SetScript("OnClick", function(self)
+        ShowUnderlyingAuction(self.entry)
+    end)
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ROW_HEIGHT - 4, ROW_HEIGHT - 4)
@@ -63,11 +156,11 @@ local function GetOrCreateRow(index)
 end
 
 local function SetRowData(row, entry)
+    row.entry = entry
     row.icon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
     row.itemName:SetText(GetItemDisplayName(entry.itemId, entry.itemLink))
-    row.buyout:SetText(Arbitrage.FormatCoin(entry.buyout, 12))
     row.disenchantValue:SetText(Arbitrage.FormatCoin(entry.disenchantValue, 12))
-    row.profit:SetText((entry.profit >= 0 and "|cff1eff00" or "|cffff0000") .. Arbitrage.FormatCoin(entry.profit, 12) .. "|r")
+    UpdateRowValueText(row, entry)
     row:Show()
 end
 
