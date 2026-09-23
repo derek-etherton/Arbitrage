@@ -304,7 +304,7 @@ function AH.NewListPane(config)
         headerProfitArrow = headerProfitButton:CreateTexture(nil, "OVERLAY")
         headerProfitArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
         headerProfitArrow:SetPoint("LEFT", headerProfit, "RIGHT", 3, 0)
-        headerProfitArrow:SetTexCoord(0, 1, 1, 0) -- descending orientation; we only ever sort descending
+        headerProfitArrow:SetTexCoord(0, 1, 0, 1) -- points down; we only ever sort descending
         headerProfitArrow:Hide()
 
         local headerPercentButton = CreateFrame("Button", nil, header)
@@ -322,7 +322,7 @@ function AH.NewListPane(config)
         headerPercentArrow = headerPercentButton:CreateTexture(nil, "OVERLAY")
         headerPercentArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
         headerPercentArrow:SetPoint("LEFT", headerPercent, "RIGHT", 3, 0)
-        headerPercentArrow:SetTexCoord(0, 1, 1, 0)
+        headerPercentArrow:SetTexCoord(0, 1, 0, 1)
         headerPercentArrow:Hide()
 
         UpdateSortHeaders()
