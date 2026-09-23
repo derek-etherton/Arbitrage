@@ -8,6 +8,7 @@ globals = {
     "LibStub",
     "CreateFrame",
     "AuctionHouseFrame",
+    "AuctionHouseUtil",
     "Enum",
     "C_AuctionHouse",
     "C_Item",

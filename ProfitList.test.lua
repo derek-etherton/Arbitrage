@@ -77,6 +77,32 @@ describe("BuildProfitList", function()
         assert.are_same({222, 333, 111}, {result[1].itemId, result[2].itemId, result[3].itemId})
     end)
 
+    it("should thread itemLevel/itemSuffix/battlePetSpeciesID through from the listing", function()
+        _G.DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID = spy.new(function() return 500 end)
+        loadfile("ProfitList.lua")("Arbitrage", Arbitrage)
+
+        local result = Arbitrage.BuildProfitList({
+            {itemId = 12967, itemLink = nil, quantity = 1, buyout = 100, itemLevel = 0, itemSuffix = 605, battlePetSpeciesID = 0},
+        })
+
+        assert.are_same(0, result[1].itemLevel)
+        assert.are_same(605, result[1].itemSuffix)
+        assert.are_same(0, result[1].battlePetSpeciesID)
+    end)
+
+    it("should default itemLevel/itemSuffix/battlePetSpeciesID to 0 when the listing omits them", function()
+        _G.DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID = spy.new(function() return 500 end)
+        loadfile("ProfitList.lua")("Arbitrage", Arbitrage)
+
+        local result = Arbitrage.BuildProfitList({
+            {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100},
+        })
+
+        assert.are_same(0, result[1].itemLevel)
+        assert.are_same(0, result[1].itemSuffix)
+        assert.are_same(0, result[1].battlePetSpeciesID)
+    end)
+
     it("should keep original order stable for equal profit", function()
         _G.DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID = spy.new(function() return 500 end)
         loadfile("ProfitList.lua")("Arbitrage", Arbitrage)

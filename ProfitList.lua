@@ -10,8 +10,8 @@ local function ProfitDescendingComparator(left, right)
     return left.sortingIndex < right.sortingIndex
 end
 
----@param listings table[] {itemId, itemLink, quantity, buyout}[] (buyout is per-unit)
----@return table[] profitList {itemId, itemLink, quantity, buyout, disenchantValue, profit}[], sorted by profit descending
+---@param listings table[] {itemId, itemLink, quantity, buyout, itemLevel, itemSuffix, battlePetSpeciesID}[] (buyout is per-unit)
+---@return table[] profitList {itemId, itemLink, quantity, buyout, itemLevel, itemSuffix, battlePetSpeciesID, disenchantValue, profit}[], sorted by profit descending
 function Arbitrage.BuildProfitList(listings)
     local profitList = {}
     if (not DisenchantBuddy) then
@@ -27,6 +27,9 @@ function Arbitrage.BuildProfitList(listings)
                 itemLink = listing.itemLink,
                 quantity = listing.quantity,
                 buyout = listing.buyout,
+                itemLevel = listing.itemLevel or 0,
+                itemSuffix = listing.itemSuffix or 0,
+                battlePetSpeciesID = listing.battlePetSpeciesID or 0,
                 disenchantValue = disenchantValue,
                 profit = disenchantValue - listing.buyout,
                 sortingIndex = #profitList + 1,

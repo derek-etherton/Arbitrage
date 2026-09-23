@@ -43,16 +43,37 @@ local buyViewIcon
 local buyViewName
 local currentBuyEntry
 
--- Browse-scan results (see ScanData.lua) have no itemLink, only an itemId; fall back to
--- C_Item.GetItemInfo, which accepts a bare itemId and works even without a link.
-local function GetItemDisplayName(itemId, itemLink)
-    if itemLink then
-        local name = itemLink:match("%[(.-)%]")
+-- Randomly-enchanted items (e.g. "War Knife of the Monkey") share one itemId across a dozen
+-- distinct suffix variants; C_AuctionHouse.MakeItemKey needs the exact itemLevel/itemSuffix/
+-- battlePetSpeciesID to find real listings for one specific variant (see ScanData.lua).
+local function MakeItemKeyForEntry(entry)
+    return C_AuctionHouse.MakeItemKey(entry.itemId, entry.itemLevel, entry.itemSuffix, entry.battlePetSpeciesID)
+end
+
+-- Browse-scan results (see ScanData.lua) have no itemLink, only itemKey components. The plain
+-- item name is misleading for a random-suffix item (every "War Knife of the X" variant would
+-- otherwise show as just "War Knife"), so ask the AH for the suffix-aware display text when the
+-- item's key info happens to already be cached; otherwise fall back to the plain name.
+local function GetItemDisplayName(entry)
+    if entry.itemLink then
+        local name = entry.itemLink:match("%[(.-)%]")
         if name then
             return name
         end
     end
-    return C_Item.GetItemInfo(itemId) or ("Item #" .. itemId)
+
+    if entry.itemSuffix and entry.itemSuffix ~= 0 then
+        local itemKey = MakeItemKeyForEntry(entry)
+        local itemKeyInfo = C_AuctionHouse.GetItemKeyInfo(itemKey)
+        if itemKeyInfo then
+            local prettyName = AuctionHouseUtil.GetItemDisplayTextFromItemKey(itemKey, itemKeyInfo, false)
+            if prettyName and prettyName ~= "" then
+                return prettyName
+            end
+        end
+    end
+
+    return C_Item.GetItemInfo(entry.itemId) or ("Item #" .. entry.itemId)
 end
 
 local function ShowRowTooltip(row)
@@ -178,9 +199,10 @@ StartNextSearch = function()
     end)
 end
 
+---@param entry table needs itemId, itemLevel, itemSuffix, battlePetSpeciesID
 ---@param onTimeout function|nil called if results never arrive within a few seconds
-local function RequestLiveSearch(itemId, onReady, onTimeout)
-    local itemKey = C_AuctionHouse.MakeItemKey(itemId)
+local function RequestLiveSearch(entry, onReady, onTimeout)
+    local itemKey = MakeItemKeyForEntry(entry)
     table.insert(searchQueue, {itemKey = itemKey, onReady = onReady, onTimeout = onTimeout})
     StartNextSearch()
 end
@@ -197,7 +219,7 @@ local function RequestLiveBuyout(row, onDone)
         if onDone then onDone() end
     end
 
-    RequestLiveSearch(entry.itemId, function(itemKey)
+    RequestLiveSearch(entry, function(itemKey)
         if row.entry == entry then
             local listings = CollectBuyoutListings(itemKey)
             -- No buyout listing found - either sold out or everything left is bid-only/owned by
@@ -358,7 +380,7 @@ local function RefreshBuyView()
     end
 
     local entry = currentBuyEntry
-    RequestLiveSearch(entry.itemId, function(itemKey)
+    RequestLiveSearch(entry, function(itemKey)
         if currentBuyEntry ~= entry then
             -- User navigated back (or to a different item) before results arrived.
             return
@@ -384,7 +406,7 @@ end
 local function ShowBuyView(entry)
     currentBuyEntry = entry
     buyViewIcon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
-    buyViewName:SetText(GetItemDisplayName(entry.itemId, entry.itemLink))
+    buyViewName:SetText(GetItemDisplayName(entry))
     buyEmptyMessage:SetText("Loading current listings...")
     RenderBuyListings({})
 
@@ -480,7 +502,7 @@ end
 local function SetRowData(row, entry)
     row.entry = entry
     row.icon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
-    row.itemName:SetText(GetItemDisplayName(entry.itemId, entry.itemLink))
+    row.itemName:SetText(GetItemDisplayName(entry))
     row.disenchantValue:SetText(Arbitrage.FormatCoin(entry.disenchantValue, 12))
     UpdateRowValueText(row, entry)
     row:Show()

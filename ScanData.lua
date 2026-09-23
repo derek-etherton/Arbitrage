@@ -20,6 +20,19 @@ local REPLICATE_INFO = {
     ITEM_ID = 17,
 }
 
+-- Randomly-enchanted items (e.g. "War Knife of the Monkey") share one itemId across a dozen
+-- distinct suffix variants, each a separate itemKey/listing on the AH. C_AuctionHouse.MakeItemKey
+-- needs the exact itemSuffix to find real listings for one - without it, it only matches the
+-- (usually nonexistent) plain/no-suffix variant, which is why searching found nothing. This
+-- matches Auctionator's own suffix extraction (Source/Utilities/DBKeyFromLink.lua's
+-- IsLegacyAH branch): the 7th colon-delimited field of the item link's itemString.
+local function GetItemSuffixFromLink(itemLink)
+    if not itemLink then
+        return nil
+    end
+    return tonumber(itemLink:match("item:.-:.-:.-:.-:.-:.-:(.-):"))
+end
+
 ---@param replicateInfo table raw C_AuctionHouse.GetReplicateItemInfo() tuple
 ---@return number|nil itemId
 ---@return number|nil quantity
@@ -38,7 +51,7 @@ end
 
 ---@param scanData table[] raw payload from Auctionator.FullScan.Events.ScanComplete:
 ---    {replicateInfo: table, itemLink: string, timeLeft: number}[]
----@return table[] listings {itemId, itemLink, quantity, buyout}[] (buyout is per-unit)
+---@return table[] listings {itemId, itemLink, quantity, buyout, itemSuffix}[] (buyout is per-unit)
 function Arbitrage.ParseReplicateScanData(scanData)
     local listings = {}
     for i = 1, #scanData do
@@ -50,6 +63,9 @@ function Arbitrage.ParseReplicateScanData(scanData)
                 itemLink = entry.itemLink,
                 quantity = quantity,
                 buyout = buyout,
+                itemLevel = 0,
+                itemSuffix = GetItemSuffixFromLink(entry.itemLink) or 0,
+                battlePetSpeciesID = 0,
             })
         end
     end
@@ -61,8 +77,12 @@ end
 ---@return number|nil itemId
 ---@return number|nil quantity
 ---@return number|nil minUnitPrice
+---@return number itemLevel
+---@return number itemSuffix
+---@return number battlePetSpeciesID
 local function ParseBrowseResult(resultInfo)
-    local itemId = resultInfo.itemKey and resultInfo.itemKey.itemID
+    local itemKey = resultInfo.itemKey
+    local itemId = itemKey and itemKey.itemID
     local quantity = resultInfo.totalQuantity
     local minUnitPrice = resultInfo.minPrice
 
@@ -70,22 +90,25 @@ local function ParseBrowseResult(resultInfo)
         return nil
     end
 
-    return itemId, quantity, minUnitPrice
+    return itemId, quantity, minUnitPrice, itemKey.itemLevel or 0, itemKey.itemSuffix or 0, itemKey.battlePetSpeciesID or 0
 end
 
 ---@param rawScan table[] raw payload from Auctionator.IncrementalScan.Events.ScanComplete
----@return table[] listings {itemId, itemLink, quantity, buyout}[] (itemLink is always nil here;
----    browse results aggregate by item, not by individual listing)
+---@return table[] listings {itemId, itemLink, quantity, buyout, itemSuffix}[] (itemLink is always
+---    nil here; browse results aggregate by exact itemKey, not by individual listing)
 function Arbitrage.ParseBrowseScanData(rawScan)
     local listings = {}
     for i = 1, #rawScan do
-        local itemId, quantity, buyout = ParseBrowseResult(rawScan[i])
+        local itemId, quantity, buyout, itemLevel, itemSuffix, battlePetSpeciesID = ParseBrowseResult(rawScan[i])
         if itemId then
             table.insert(listings, {
                 itemId = itemId,
                 itemLink = nil,
                 quantity = quantity,
                 buyout = buyout,
+                itemLevel = itemLevel,
+                itemSuffix = itemSuffix,
+                battlePetSpeciesID = battlePetSpeciesID,
             })
         end
     end

@@ -30,8 +30,20 @@ describe("ParseReplicateScanData", function()
         local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({
-            {itemId = 10940, itemLink = "itemLinkA", quantity = 2, buyout = 100},
+            {itemId = 10940, itemLink = "itemLinkA", quantity = 2, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
         }, listings)
+    end)
+
+    it("should extract itemSuffix from a randomly-enchanted item's link", function()
+        -- item:itemID:enchant:gem1:gem2:gem3:gem4:SUFFIX:uniqueID:linkLevel
+        local warKnifeOfTheMonkey = "item:12967:0:0:0:0:0:605:0:0"
+        local scanData = {
+            {replicateInfo = replicateInfo(1, 500, 12967), itemLink = warKnifeOfTheMonkey},
+        }
+
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
+
+        assert.are_same(605, listings[1].itemSuffix)
     end)
 
     it("should skip listings with zero quantity", function()
@@ -74,8 +86,8 @@ describe("ParseReplicateScanData", function()
         local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({
-            {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100},
-            {itemId = 333, itemLink = "linkC", quantity = 3, buyout = 100},
+            {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
+            {itemId = 333, itemLink = "linkC", quantity = 3, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
         }, listings)
     end)
 end)
@@ -89,9 +101,9 @@ describe("ParseBrowseScanData", function()
         loadfile("ScanData.lua")("Arbitrage", Arbitrage)
     end)
 
-    local function browseResult(itemId, minPrice, totalQuantity)
+    local function browseResult(itemId, minPrice, totalQuantity, itemLevel, itemSuffix, battlePetSpeciesID)
         return {
-            itemKey = {itemID = itemId},
+            itemKey = {itemID = itemId, itemLevel = itemLevel, itemSuffix = itemSuffix, battlePetSpeciesID = battlePetSpeciesID},
             minPrice = minPrice,
             totalQuantity = totalQuantity,
         }
@@ -109,8 +121,17 @@ describe("ParseBrowseScanData", function()
         local listings = Arbitrage.ParseBrowseScanData(rawScan)
 
         assert.are_same({
-            {itemId = 10940, itemLink = nil, quantity = 5, buyout = 100},
+            {itemId = 10940, itemLink = nil, quantity = 5, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
         }, listings)
+    end)
+
+    it("should preserve itemLevel/itemSuffix/battlePetSpeciesID from a random-enchant item's key", function()
+        -- e.g. "War Knife" (itemId 12967) vs "War Knife of the Monkey" (same itemId, itemSuffix 605)
+        local rawScan = {browseResult(12967, 100, 5, 0, 605, 0)}
+
+        local listings = Arbitrage.ParseBrowseScanData(rawScan)
+
+        assert.are_same(605, listings[1].itemSuffix)
     end)
 
     it("should skip results with zero quantity", function()
