@@ -74,8 +74,13 @@ function AH.NewBuyPane()
         row.buyout:SetWidth(150)
         row.buyout:SetJustifyH("LEFT")
 
+        row.profitPercent = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        row.profitPercent:SetPoint("LEFT", row.buyout, "RIGHT", 8, 0)
+        row.profitPercent:SetWidth(70)
+        row.profitPercent:SetJustifyH("LEFT")
+
         row.quantity = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        row.quantity:SetPoint("LEFT", row.buyout, "RIGHT", 8, 0)
+        row.quantity:SetPoint("LEFT", row.profitPercent, "RIGHT", 8, 0)
         row.quantity:SetWidth(100)
         row.quantity:SetJustifyH("LEFT")
 
@@ -99,6 +104,9 @@ function AH.NewBuyPane()
             local row = GetOrCreateBuyRow(i)
             row.listing = listing
             row.buyout:SetText(Arbitrage.FormatCoin(listing.buyout, 12))
+            local isLoss = listing.profitPercent < 0
+            row.profitPercent:SetText((isLoss and "|cffff0000" or "|cff1eff00")
+                .. string.format("%.0f%%", listing.profitPercent) .. "|r")
             row.quantity:SetText(tostring(listing.quantity))
             ApplyBuyRowAppearance(row)
             row:Show()
@@ -129,6 +137,11 @@ function AH.NewBuyPane()
                 return
             end
             local listings = AH.CollectBuyoutListings(itemKey)
+            for i = 1, #listings do
+                local listing = listings[i]
+                listing.profitPercent = listing.buyout > 0
+                    and ((entry.value - listing.buyout) / listing.buyout * 100) or 0
+            end
             local totalCount = #listings
             if #listings == 0 then
                 buyEmptyMessage:SetText("No active listings for this item right now.")
@@ -220,8 +233,14 @@ function AH.NewBuyPane()
         headerBuyout:SetJustifyH("LEFT")
         headerBuyout:SetText("Buyout")
 
+        local headerPercent = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerPercent:SetPoint("LEFT", headerBuyout, "RIGHT", 8, 0)
+        headerPercent:SetWidth(70)
+        headerPercent:SetJustifyH("LEFT")
+        headerPercent:SetText("Profit %")
+
         local headerQuantity = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerQuantity:SetPoint("LEFT", headerBuyout, "RIGHT", 8, 0)
+        headerQuantity:SetPoint("LEFT", headerPercent, "RIGHT", 8, 0)
         headerQuantity:SetWidth(100)
         headerQuantity:SetJustifyH("LEFT")
         headerQuantity:SetText("Quantity")

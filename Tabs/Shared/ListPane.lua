@@ -216,11 +216,9 @@ function AH.NewListPane(config)
         return sorted
     end
 
-    -- Color the active sort column gold instead of using an arrow glyph, since WoW's default
-    -- fonts don't reliably render arrow/caret unicode characters across all locales.
     local function UpdateSortHeaders()
-        headerProfit:SetText(sortKey == "profit" and "|cffffd200Profit|r" or "Profit")
-        headerPercent:SetText(sortKey == "percent" and "|cffffd200%|r" or "%")
+        headerProfit:SetText(sortKey == "profit" and "|cffffd200Profit \xE2\x96\xBC|r" or "Profit")
+        headerPercent:SetText(sortKey == "percent" and "|cffffd200% \xE2\x96\xBC|r" or "%")
     end
 
     local function SetSortKey(key)
