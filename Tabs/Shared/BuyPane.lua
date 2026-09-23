@@ -23,18 +23,21 @@ function AH.NewBuyPane()
     local CONFIRM_COMMODITY_DIALOG_KEY = "ARBITRAGE_CONFIRM_COMMODITY_" .. dialogCounter
 
     -- Commodity purchases are a 2-step handshake (quote then confirm), unlike PlaceBid's single
-    -- call for regular items, so we need to track which listing is mid-purchase.
+    -- call for regular items, so we need to track which purchase is in flight and block others
+    -- from overlapping it (only one commodity purchase can be quoted at a time).
     local pendingCommodityListing
+    local commodityPurchaseInFlight = false
 
     local function ConfirmBuyListing(listing)
         if not listing then
             return
         end
         if listing.isCommodity then
-            local total = listing.buyout * listing.quantity
+            if commodityPurchaseInFlight then
+                return
+            end
             StaticPopup_Show(CONFIRM_COMMODITY_DIALOG_KEY, listing.quantity,
-                Arbitrage.FormatCoin(listing.buyout, 12) .. " each (~" .. Arbitrage.FormatCoin(total, 12) .. " total)",
-                listing)
+                Arbitrage.FormatCoin(listing.buyout, 12), listing)
         else
             StaticPopup_Show(CONFIRM_DIALOG_KEY, Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
         end
@@ -206,13 +209,37 @@ function AH.NewBuyPane()
         preferredIndex = 3,
     }
 
+    -- Mirrors the default AH's commodity purchase flow: let the player choose how many to buy
+    -- out of what's available at this price, instead of always buying the whole tier.
     StaticPopupDialogs[CONFIRM_COMMODITY_DIALOG_KEY] = {
-        text = "Buy %dx for %s?",
+        text = "Buy how many? (%d available at %s each)",
         button1 = "Buy",
         button2 = "Cancel",
-        OnAccept = function(_, data)
-            pendingCommodityListing = data
-            C_AuctionHouse.StartCommoditiesPurchase(data.itemId, data.quantity)
+        hasEditBox = true,
+        OnShow = function(self)
+            self.editBox:SetText(tostring(self.data.quantity))
+            self.editBox:HighlightText()
+            self.editBox:SetFocus()
+        end,
+        EditBoxOnEnterPressed = function(self)
+            self:GetParent().button1:Click()
+        end,
+        EditBoxOnEscapePressed = function(self)
+            self:GetParent():Hide()
+        end,
+        OnAccept = function(self, data)
+            if commodityPurchaseInFlight then
+                return
+            end
+            local desiredQuantity = tonumber(self.editBox:GetText())
+            if not desiredQuantity then
+                return
+            end
+            desiredQuantity = math.max(1, math.min(math.floor(desiredQuantity), data.quantity))
+
+            commodityPurchaseInFlight = true
+            pendingCommodityListing = {itemId = data.itemId, quantity = desiredQuantity, buyout = data.buyout, isCommodity = true}
+            C_AuctionHouse.StartCommoditiesPurchase(data.itemId, desiredQuantity)
         end,
         timeout = 0,
         whileDead = true,
@@ -235,11 +262,16 @@ function AH.NewBuyPane()
         elseif eventName == "COMMODITY_PRICE_UNAVAILABLE" then
             C_AuctionHouse.CancelCommoditiesPurchase()
             pendingCommodityListing = nil
+            commodityPurchaseInFlight = false
         elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" then
-            MarkListingPurchased(pendingCommodityListing)
+            -- Refresh from the server instead of just greying out this row: a partial-quantity
+            -- purchase leaves the rest of the tier available, and quantities shift after any buy.
             pendingCommodityListing = nil
+            commodityPurchaseInFlight = false
+            RefreshBuyView()
         elseif eventName == "COMMODITY_PURCHASE_FAILED" then
             pendingCommodityListing = nil
+            commodityPurchaseInFlight = false
         end
     end)
 
