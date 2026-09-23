@@ -98,16 +98,60 @@ end
 -- refresh and the buy sub-view share this single in-flight request; a newer request simply
 -- supersedes whatever was previously pending.
 local pendingItemKey, pendingOnReady
+local currentPollTicker
 
-local function RequestLiveSearch(itemId, onReady)
+local function TryResolvePending()
+    if not pendingItemKey or not C_AuctionHouse.HasFullItemSearchResults(pendingItemKey) then
+        return false
+    end
+
+    local itemKey, onReady = pendingItemKey, pendingOnReady
+    pendingItemKey, pendingOnReady = nil, nil
+    if currentPollTicker then
+        currentPollTicker:Cancel()
+        currentPollTicker = nil
+    end
+
+    onReady(itemKey)
+    return true
+end
+
+---@param onTimeout function|nil called if results never arrive within a few seconds
+local function RequestLiveSearch(itemId, onReady, onTimeout)
+    if currentPollTicker then
+        currentPollTicker:Cancel()
+        currentPollTicker = nil
+    end
+
     local itemKey = C_AuctionHouse.MakeItemKey(itemId)
     pendingItemKey, pendingOnReady = itemKey, onReady
+
     local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
     if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
         Auctionator.AH.SendSearchQueryByItemKey(itemKey, sorts, true)
     else
         C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
     end
+
+    -- Blizzard doesn't always re-fire ITEM_SEARCH_RESULTS_UPDATED when a search's results are
+    -- already fully cached (e.g. this exact item was searched moments ago via hover) - without
+    -- this poll, that leaves a pending request waiting forever for an event that never comes.
+    local attempts = 0
+    currentPollTicker = C_Timer.NewTicker(0.2, function(ticker)
+        if TryResolvePending() then
+            return
+        end
+
+        attempts = attempts + 1
+        if attempts >= 15 then
+            ticker:Cancel()
+            currentPollTicker = nil
+            pendingItemKey, pendingOnReady = nil, nil
+            if onTimeout then
+                onTimeout()
+            end
+        end
+    end)
 end
 
 local function RequestLiveBuyout(row)
@@ -206,6 +250,12 @@ local function RefreshBuyView()
             buyEmptyMessage:SetText("No active listings for this item right now.")
         end
         RenderBuyListings(listings)
+    end, function()
+        if currentBuyEntry ~= entry then
+            return
+        end
+        buyEmptyMessage:SetText("Couldn't load current listings - try closing and reopening this item.")
+        RenderBuyListings({})
     end)
 end
 
@@ -229,21 +279,13 @@ end
 local liveQueryFrame = CreateFrame("Frame")
 liveQueryFrame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
 liveQueryFrame:RegisterEvent("AUCTION_HOUSE_NEW_BID_RECEIVED")
-liveQueryFrame:SetScript("OnEvent", function(_, eventName, itemKey)
+liveQueryFrame:SetScript("OnEvent", function(_, eventName)
     if eventName == "AUCTION_HOUSE_NEW_BID_RECEIVED" then
         -- A purchase (ours or otherwise) landed; if the buy sub-view is open, refresh its listings.
         RefreshBuyView()
-        return
+    else
+        TryResolvePending()
     end
-
-    if not pendingItemKey or not itemKey or itemKey.itemID ~= pendingItemKey.itemID
-        or not C_AuctionHouse.HasFullItemSearchResults(itemKey) then
-        return
-    end
-
-    local onReady = pendingOnReady
-    pendingItemKey, pendingOnReady = nil, nil
-    onReady(itemKey)
 end)
 
 StaticPopupDialogs["ARBITRAGE_CONFIRM_BUYOUT"] = {

@@ -11,6 +11,7 @@ globals = {
     "Enum",
     "C_AuctionHouse",
     "C_Item",
+    "C_Timer",
     "C_CurrencyInfo",
     "GameTooltip",
     "GameTooltip_Hide",
