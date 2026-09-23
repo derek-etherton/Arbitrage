@@ -4,7 +4,7 @@ local Arbitrage = select(2, ...)
 Arbitrage.AH = Arbitrage.AH or {}
 local AH = Arbitrage.AH
 
-AH.ROW_HEIGHT = 25
+AH.ROW_HEIGHT = 30
 AH.PAGE_SIZE = 15
 AH.BUY_LISTINGS_PAGE_SIZE = 20
 AH.PANE_GAP = 10
