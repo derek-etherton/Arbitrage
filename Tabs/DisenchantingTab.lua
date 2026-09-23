@@ -713,12 +713,13 @@ end
 
 local function CreateContentFrame()
     local frame = CreateFrame("Frame", "ArbitrageDisenchantingTabFrame", AuctionHouseFrame)
-    -- Same anchor offsets Auctionator's own AuctionatorTabFrameTemplate uses
-    -- (Source\Tabs\Frames\TabFrame.xml), without inheriting that private template.
+    -- These 4 offsets are the whole content area, hand-tuned against this client's AH window
+    -- (tabs sit at the BOTTOM here, not a top tab-strip, so there's no need for much top
+    -- clearance beyond the title bar). Adjust these numbers directly if the fit is off.
     frame:SetPoint("LEFT", AuctionHouseFrame, "LEFT", 4, 0)
     frame:SetPoint("RIGHT", AuctionHouseFrame, "RIGHT", -4, 0)
     frame:SetPoint("BOTTOM", AuctionHouseFrame, "BOTTOM", 0, 27)
-    frame:SetPoint("TOP", AuctionHouseFrame, "TOP", 0, -103)
+    frame:SetPoint("TOP", AuctionHouseFrame, "TOP", 0, -32)
 
     CreateListView(frame)
     CreateBuyView(frame)
