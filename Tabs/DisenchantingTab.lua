@@ -178,17 +178,28 @@ local function RequestLiveBuyout(row)
     end)
 end
 
+local function ConfirmBuyListing(listing)
+    if not listing then
+        return
+    end
+    StaticPopup_Show("ARBITRAGE_CONFIRM_BUYOUT", Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
+end
+
 local function GetOrCreateBuyRow(index)
     local row = buyRowPool[index]
     if row then
         return row
     end
 
-    row = CreateFrame("Frame", nil, buyScrollChild)
+    row = CreateFrame("Button", nil, buyScrollChild)
     row:SetHeight(ROW_HEIGHT)
     row:SetPoint("LEFT", buyScrollChild, "LEFT", 0, 0)
     row:SetPoint("RIGHT", buyScrollChild, "RIGHT", 0, 0)
     row:SetPoint("TOP", buyScrollChild, "TOP", 0, -(index - 1) * ROW_HEIGHT)
+    row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    row:SetScript("OnClick", function(self)
+        ConfirmBuyListing(self.listing)
+    end)
 
     row.buyout = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     row.buyout:SetPoint("LEFT", row, "LEFT", 4, 0)
@@ -205,11 +216,7 @@ local function GetOrCreateBuyRow(index)
     row.buyButton:SetPoint("LEFT", row.quantity, "RIGHT", 8, 0)
     row.buyButton:SetText("Buy")
     row.buyButton:SetScript("OnClick", function(self)
-        local listing = self:GetParent().listing
-        if not listing then
-            return
-        end
-        StaticPopup_Show("ARBITRAGE_CONFIRM_BUYOUT", Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
+        ConfirmBuyListing(self:GetParent().listing)
     end)
 
     buyRowPool[index] = row
