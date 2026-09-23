@@ -4,6 +4,11 @@ local Arbitrage = select(2, ...)
 local TAB_ID = "Arbitrage-Disenchanting"
 local ROW_HEIGHT = 20
 local MAX_DISPLAYED_ROWS = 200 -- sane cap; a full scan filtered to disenchantable items shouldn't exceed this by much
+-- Sum of the icon/column widths and gaps below (2+16+4+220+8+130+8+130+8+130). scrollChild needs
+-- an explicit width matching this, or rows anchored LEFT+RIGHT to it collapse to ~0px wide and
+-- silently stop receiving mouse events (OnEnter/OnClick), even though their text/icon still
+-- render fine (children draw at their own offsets regardless of the parent's declared size).
+local CONTENT_WIDTH = 656
 
 ---@type table[] pooled row frames, reused and rebound as the list updates
 local rowPool = {}
@@ -58,11 +63,32 @@ local function UpdateRowValueText(row, entry)
     row.profit:SetText((entry.profit >= 0 and "|cff1eff00" or "|cffff0000") .. Arbitrage.FormatCoin(entry.profit, 12) .. "|r")
 end
 
+local function ApplyRowAppearance(row, entry)
+    UpdateRowValueText(row, entry)
+    row:SetAlpha(entry.confirmedGone and 0.4 or 1)
+end
+
 -- The list's sort order and membership come from the last Auctionator scan, which can go stale
 -- (listings sell, get cancelled, etc.). Rather than re-scan or re-sort, we correct just the
 -- hovered row's numbers to the item's actual current cheapest listing - the AH only supports one
 -- active browse search at a time, so only one of these is ever in flight.
 local pendingRow, pendingEntry, pendingItemKey
+
+-- C_AuctionHouse.GetBrowseResults()'s minPrice is an aggregate "cheapest price" that can reflect
+-- a bid-only auction's current bid when nothing has a buyout - not safe to treat as a buyout. The
+-- per-listing item search results (below) separate buyoutAmount from bidAmount explicitly.
+local function FindCheapestBuyout(itemKey)
+    local cheapest
+    for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
+        local resultInfo = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
+        if resultInfo and resultInfo.buyoutAmount and resultInfo.buyoutAmount > 0 then
+            if (not cheapest) or resultInfo.buyoutAmount < cheapest then
+                cheapest = resultInfo.buyoutAmount
+            end
+        end
+    end
+    return cheapest
+end
 
 local function RequestLiveBuyout(row)
     local entry = row.entry
@@ -81,9 +107,10 @@ local function RequestLiveBuyout(row)
 end
 
 local liveQueryFrame = CreateFrame("Frame")
-liveQueryFrame:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
-liveQueryFrame:SetScript("OnEvent", function()
-    if not pendingItemKey or not C_AuctionHouse.HasFullBrowseResults() then
+liveQueryFrame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
+liveQueryFrame:SetScript("OnEvent", function(_, _, itemKey)
+    if not pendingItemKey or not itemKey or itemKey.itemID ~= pendingItemKey.itemID
+        or not C_AuctionHouse.HasFullItemSearchResults(itemKey) then
         return
     end
 
@@ -95,15 +122,15 @@ liveQueryFrame:SetScript("OnEvent", function()
         return
     end
 
-    local results = C_AuctionHouse.GetBrowseResults()
-    if not results or not results[1] or not results[1].minPrice then
-        -- Nothing currently listed; keep showing the last-known (stale) scan value.
-        return
+    local liveBuyout = FindCheapestBuyout(itemKey)
+    -- No buyout listing found - either sold out or everything left is bid-only; either way it's
+    -- not something we can point at a fixed buyout price for, so treat it like a gone listing.
+    entry.confirmedGone = liveBuyout == nil
+    if liveBuyout then
+        entry.buyout = liveBuyout
+        entry.profit = entry.disenchantValue - entry.buyout
     end
-
-    entry.buyout = results[1].minPrice
-    entry.profit = entry.disenchantValue - entry.buyout
-    UpdateRowValueText(row, entry)
+    ApplyRowAppearance(row, entry)
 end)
 
 local function GetOrCreateRow(index)
@@ -226,7 +253,7 @@ local function CreateContentFrame()
     scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(1)
+    scrollChild:SetWidth(CONTENT_WIDTH)
     scrollChild:SetHeight(1)
     scrollFrame:SetScrollChild(scrollChild)
 
