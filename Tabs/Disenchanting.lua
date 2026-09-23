@@ -21,7 +21,7 @@ local listPane = AH.NewListPane({
 
 AH.RegisterTab({
     tabId = "Arbitrage-Disenchanting",
-    title = "Disenchanting",
+    title = "Disenchant",
     settingsKey = "ShowDisenchanting",
     createContentFrame = function()
         local frame = CreateFrame("Frame", "ArbitrageDisenchantingTabFrame", AuctionHouseFrame)

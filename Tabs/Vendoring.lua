@@ -22,7 +22,7 @@ local listPane = AH.NewListPane({
 
 AH.RegisterTab({
     tabId = "Arbitrage-Vendoring",
-    title = "Vendoring",
+    title = "Vendor",
     settingsKey = "ShowVendoring",
     createContentFrame = function()
         local frame = CreateFrame("Frame", "ArbitrageVendoringTabFrame", AuctionHouseFrame)
