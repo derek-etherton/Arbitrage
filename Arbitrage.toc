@@ -14,4 +14,9 @@ FormatCoin.lua
 ScanData.lua
 ProfitList.lua
 ScanListener.lua
+Tabs\Disenchanting\Layout.lua
+Tabs\Disenchanting\ItemDisplay.lua
+Tabs\Disenchanting\LiveSearchQueue.lua
+Tabs\Disenchanting\ListView.lua
+Tabs\Disenchanting\BuyView.lua
 Tabs\DisenchantingTab.lua

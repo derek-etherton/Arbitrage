@@ -6,9 +6,7 @@ Targets **"WoW: Forever"** only for now (`_classic_beta_`, `WOW_PROJECT_ID == WO
 
 ## Status
 
-**Milestone 1 (done):** a blank "Disenchanting" tab appears in the Auction House, positioned after Auctionator's own tabs.
-
-**Milestone 2 (in progress):** the tab now shows a scrollable, profit-sorted list of listings from the last Auctionator full scan. Working end-to-end, but not yet verified against a real in-game scan (see [Known gaps](#known-gaps)).
+Working end-to-end and verified in-game. The Disenchanting tab shows a profit-sorted, paginated list of listings from the last Auctionator full scan on the left, and clicking a row opens a side pane on the right listing that item's actual current buyout listings, with a "Buy" action per listing (confirmation popup, then `C_AuctionHouse.PlaceBid`).
 
 ## Dependencies
 
@@ -44,15 +42,22 @@ The payload (`scanData`) is an array of `{replicateInfo, itemLink, timeLeft}`. `
 
 ### UI
 
-`Tabs/DisenchantingTab.lua` renders `Arbitrage.ProfitList` as a scrollable list (icon, name, buyout, DE value, profit) inside a `UIPanelScrollFrameTemplate`, capped at 200 rows (a scan filtered down to actually-disenchantable Uncommon+ armor/weapons shouldn't exceed this by much; if it does in practice, worth revisiting). A pure scrolling list rather than click-through pagination — matches Blizzard's own AH result-list UX and Auctionator's own Shopping/Buying tabs, and was simpler to implement correctly.
+The tab's UI lives under `Tabs/Disenchanting/`, split by concern rather than one large file:
 
-Item icon/name come directly from the item link (`%[(.-)%]` pattern match for the name, `C_Item.GetItemIconByID` for the icon) rather than async `Item:CreateFromItemID():ContinueOnItemLoad()` loading. This is a deliberate simplification for this pass, not a bug — it works for any item with a real link, which every AH listing has. Revisit if truncated/garbled names show up in practice.
+- **`Layout.lua`** — shared sizing constants (row height, column widths, pane widths) both panes read from.
+- **`ItemDisplay.lua`** — item name/quality-color lookups. Randomly-enchanted items (e.g. "War Knife of the Monkey") share one `itemId` across many distinct suffix variants, each a separate AH listing; this is also where `itemLevel`/`itemSuffix`/`battlePetSpeciesID` get turned into the exact `itemKey` needed to find one.
+- **`LiveSearchQueue.lua`** — the AH only supports one active item search at a time, so every live price lookup (hover refresh, the buy pane) goes through a small FIFO queue here rather than each caller firing its own search and stomping on the others.
+- **`ListView.lua`** — the left pane: the paginated (20/page), profit-sorted list, hover-triggered live buyout correction, and the manual "Reload" button.
+- **`BuyView.lua`** — the right pane: opened by clicking a list row, shows that item's real current buyout listings (cheapest 20, with a "+N more" note), and handles the purchase confirm/`PlaceBid` flow.
+
+`Tabs/DisenchantingTab.lua` is just the entry point — it builds the AH-open hook and wires the two panes into one content frame; it doesn't contain any of the actual list/buy logic.
+
+Item icon/name come from the item link (`%[(.-)%]` pattern match) when one's available (replicate scans), falling back to `C_Item.GetItemInfo`/the AH's suffix-aware display text otherwise (browse scans have no link — see `ItemDisplay.lua`).
 
 ## Known gaps
 
-- **Not yet tested against a real in-game "Get All" scan.** The data pipeline (`ScanData.lua`/`ProfitList.lua`) is unit-tested against synthetic data; the actual `Auctionator.FullScan.Events.ScanComplete` payload shape has only been verified by reading Auctionator's source, not by observing a real firing. Test this next: run a full scan in Auctionator, confirm the Disenchanting tab populates with sensible numbers.
-- **No visible "click to open Auctionator's Buy tab for this item" action** — the list is informational only; you can't act on a row yet.
-- **200-row cap** with no indication when it's hit — a status line ("Showing top 200 of N") would be a small, worthwhile follow-up.
+- **The "Reload" button and hover refresh only correct what's already on screen** — they don't re-run Auctionator's own scan, so a genuinely new listing that undercuts everything won't appear until the next full "Get All" scan.
+- **No support for clients using the Legacy AH** (TBC/Wrath/Vanilla-engine, including TBC Anniversary) — see [Compatibility](#compatibility). Loading there currently risks a load-time error rather than a clean no-op; worth guarding if this addon is ever used somewhere Forever isn't guaranteed.
 
 ## Compatibility
 
@@ -62,7 +67,7 @@ Currently the `.toc` only declares `## Interface: 16001` (Forever's specific ran
 
 ## Development
 
-Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`) is tested; UI code (`Tabs/DisenchantingTab.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
+Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`) is tested; UI code (`Tabs/DisenchantingTab.lua`, `Tabs/Disenchanting/*.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
 
 ```powershell
 $env:PATH += ";$env:APPDATA\luarocks\bin"   # one-time per shell if not already permanent
