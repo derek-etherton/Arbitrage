@@ -8,7 +8,6 @@ local VALUE_COL_WIDTH = AH.VALUE_COL_WIDTH
 local COLUMN_GAP = AH.COLUMN_GAP
 local LIST_CONTENT_WIDTH = AH.LIST_CONTENT_WIDTH
 local LIST_PANE_WIDTH = AH.LIST_PANE_WIDTH
-local PAGE_SIZE = AH.PAGE_SIZE
 
 ---@param config table {profitListKey: string, valueLabel: string, emptyText: string, onRowClick: fun(entry: table)}
 ---@return table pane with .Create(frame) and .frame (set once Create runs)
@@ -17,8 +16,11 @@ function AH.NewListPane(config)
 
     local currentPage = 1
     local rowPool = {}
-    local scrollChild, emptyMessage, pageLabel, prevPageButton, nextPageButton, reloadButton
+    local scrollChild, scrollFrame, emptyMessage, pageLabel, prevPageButton, nextPageButton, reloadButton
     local bulkRefreshInProgress = false
+    -- Set once Create() has anchored scrollFrame, from its actual measured height - fills
+    -- whatever vertical space the AH window gives us instead of guessing a fixed row count.
+    local pageSize = AH.PAGE_SIZE
 
     local function ShowRowTooltip(row)
         local entry = row.entry
@@ -180,11 +182,11 @@ function AH.NewListPane(config)
     local function RefreshRows()
         local profitList = Arbitrage.ProfitLists[config.profitListKey] or {}
         local totalItems = #profitList
-        local totalPages = math.max(1, math.ceil(totalItems / PAGE_SIZE))
+        local totalPages = math.max(1, math.ceil(totalItems / pageSize))
         currentPage = math.min(math.max(currentPage, 1), totalPages)
 
-        local startIndex = (currentPage - 1) * PAGE_SIZE
-        local displayCount = math.min(PAGE_SIZE, totalItems - startIndex)
+        local startIndex = (currentPage - 1) * pageSize
+        local displayCount = math.min(pageSize, totalItems - startIndex)
 
         for i = 1, displayCount do
             SetRowData(GetOrCreateRow(i), profitList[startIndex + i])
@@ -274,7 +276,7 @@ function AH.NewListPane(config)
         pageLabel:SetPoint("RIGHT", nextPageButton, "LEFT", -4, 0)
         pageLabel:SetJustifyH("CENTER")
 
-        local scrollFrame = CreateFrame("ScrollFrame", nil, listView, "UIPanelScrollFrameTemplate")
+        scrollFrame = CreateFrame("ScrollFrame", nil, listView, "UIPanelScrollFrameTemplate")
         scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
         scrollFrame:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", -26, 4)
 
@@ -286,6 +288,11 @@ function AH.NewListPane(config)
         emptyMessage = listView:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
         emptyMessage:SetPoint("CENTER", scrollFrame, "CENTER", 0, 0)
         emptyMessage:SetText(config.emptyText)
+
+        local availableHeight = scrollFrame:GetHeight()
+        if availableHeight and availableHeight > 0 then
+            pageSize = math.max(1, math.floor(availableHeight / ROW_HEIGHT))
+        end
 
         RefreshRows()
     end
