@@ -337,84 +337,12 @@ function AH.NewListPane(config)
             filterBar:SetPoint("TOPRIGHT", listView, "TOPRIGHT", -4, -4)
             filterBar:SetHeight(32) -- tall enough for UIDropDownMenuTemplate's fixed-height art
 
-            local armorCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
-            armorCheck:SetPoint("LEFT", filterBar, "LEFT", 0, 0)
-            armorCheck:SetSize(20, 20)
-            armorCheck:SetChecked(filterState.showArmor)
-            armorCheck:SetScript("OnClick", function(self)
-                filterState.showArmor = self:GetChecked() and true or false
-                currentPage = 1
-                RefreshRows()
-            end)
-
-            local armorLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-            armorLabel:SetPoint("LEFT", armorCheck, "RIGHT", 2, 0)
-            armorLabel:SetText("Armor")
-
-            local weaponCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
-            weaponCheck:SetPoint("LEFT", armorLabel, "RIGHT", 12, 0)
-            weaponCheck:SetSize(20, 20)
-            weaponCheck:SetChecked(filterState.showWeapons)
-            weaponCheck:SetScript("OnClick", function(self)
-                filterState.showWeapons = self:GetChecked() and true or false
-                currentPage = 1
-                RefreshRows()
-            end)
-
-            local weaponLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-            weaponLabel:SetPoint("LEFT", weaponCheck, "RIGHT", 2, 0)
-            weaponLabel:SetText("Weapons")
-
-            local ilvlLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-            ilvlLabel:SetPoint("LEFT", weaponLabel, "RIGHT", 16, 0)
-            ilvlLabel:SetText("Item Level:")
-
-            local minLevelBox, maxLevelBox
-            local function ApplyItemLevelFilter()
-                filterState.minItemLevel = tonumber(minLevelBox:GetText())
-                filterState.maxItemLevel = tonumber(maxLevelBox:GetText())
-                currentPage = 1
-                RefreshRows()
-            end
-
-            minLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
-            minLevelBox:SetSize(34, 20)
-            minLevelBox:SetPoint("LEFT", ilvlLabel, "RIGHT", 8, 0)
-            minLevelBox:SetAutoFocus(false)
-            minLevelBox:SetNumeric(true)
-            minLevelBox:SetMaxLetters(4)
-            if filterState.minItemLevel then
-                minLevelBox:SetText(tostring(filterState.minItemLevel))
-            end
-            minLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-            minLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
-
-            local dashLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-            dashLabel:SetPoint("LEFT", minLevelBox, "RIGHT", 4, 0)
-            dashLabel:SetText("-")
-
-            maxLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
-            maxLevelBox:SetSize(34, 20)
-            maxLevelBox:SetPoint("LEFT", dashLabel, "RIGHT", 4, 0)
-            maxLevelBox:SetAutoFocus(false)
-            maxLevelBox:SetNumeric(true)
-            maxLevelBox:SetMaxLetters(4)
-            if filterState.maxItemLevel then
-                maxLevelBox:SetText(tostring(filterState.maxItemLevel))
-            end
-            maxLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-            maxLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
-
-            local rarityLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-            rarityLabel:SetPoint("LEFT", maxLevelBox, "RIGHT", 16, 0)
-            rarityLabel:SetText("Rarity:")
-
-            -- UIDropDownMenuTemplate frames need a unique global name; a counter keeps multiple
-            -- list pane instances (if another tab ever opts into filters) from colliding.
+            -- Built right-to-left (rarity first) so the whole bar hugs the pane's right edge,
+            -- clear of the AH frame's character portrait in the top-left corner.
             listPaneDropdownCounter = listPaneDropdownCounter + 1
             local rarityDropdown = CreateFrame("Frame", "ArbitrageListPaneRarityDropdown" .. listPaneDropdownCounter,
                 filterBar, "UIDropDownMenuTemplate")
-            rarityDropdown:SetPoint("LEFT", rarityLabel, "RIGHT", -8, -2)
+            rarityDropdown:SetPoint("RIGHT", filterBar, "RIGHT", 12, -2)
             UIDropDownMenu_SetWidth(rarityDropdown, 90)
 
             local RARITY_OPTIONS = {
@@ -425,6 +353,25 @@ function AH.NewListPane(config)
                 {text = "Legendary+", value = 5},
             }
 
+            -- Blizzard's dropdown code falls back a button's value to its text when info.value
+            -- is nil (as "Any" needs), so read the filter value from the closed-over option
+            -- table instead of the button/info's .value field.
+            UIDropDownMenu_Initialize(rarityDropdown, function(_, level)
+                for i = 1, #RARITY_OPTIONS do
+                    local option = RARITY_OPTIONS[i]
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = option.text
+                    info.checked = (filterState.minQuality == option.value)
+                    info.func = function()
+                        filterState.minQuality = option.value
+                        UIDropDownMenu_SetText(rarityDropdown, option.text)
+                        currentPage = 1
+                        RefreshRows()
+                    end
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end)
+
             local function GetRarityOptionText(value)
                 for i = 1, #RARITY_OPTIONS do
                     if RARITY_OPTIONS[i].value == value then
@@ -433,24 +380,79 @@ function AH.NewListPane(config)
                 end
                 return "Any"
             end
-
-            UIDropDownMenu_Initialize(rarityDropdown, function(_, level)
-                for i = 1, #RARITY_OPTIONS do
-                    local option = RARITY_OPTIONS[i]
-                    local info = UIDropDownMenu_CreateInfo()
-                    info.text = option.text
-                    info.value = option.value
-                    info.checked = (filterState.minQuality == option.value)
-                    info.func = function(button)
-                        filterState.minQuality = button.value
-                        UIDropDownMenu_SetText(rarityDropdown, GetRarityOptionText(button.value))
-                        currentPage = 1
-                        RefreshRows()
-                    end
-                    UIDropDownMenu_AddButton(info, level)
-                end
-            end)
             UIDropDownMenu_SetText(rarityDropdown, GetRarityOptionText(filterState.minQuality))
+
+            local rarityLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            rarityLabel:SetPoint("RIGHT", rarityDropdown, "LEFT", 8, 2)
+            rarityLabel:SetText("Rarity:")
+
+            local minLevelBox, maxLevelBox
+            local function ApplyItemLevelFilter()
+                filterState.minItemLevel = tonumber(minLevelBox:GetText())
+                filterState.maxItemLevel = tonumber(maxLevelBox:GetText())
+                currentPage = 1
+                RefreshRows()
+            end
+
+            maxLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
+            maxLevelBox:SetSize(34, 20)
+            maxLevelBox:SetPoint("RIGHT", rarityLabel, "LEFT", -16, 0)
+            maxLevelBox:SetAutoFocus(false)
+            maxLevelBox:SetNumeric(true)
+            maxLevelBox:SetMaxLetters(4)
+            if filterState.maxItemLevel then
+                maxLevelBox:SetText(tostring(filterState.maxItemLevel))
+            end
+            maxLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            maxLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
+
+            local dashLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            dashLabel:SetPoint("RIGHT", maxLevelBox, "LEFT", -4, 0)
+            dashLabel:SetText("-")
+
+            minLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
+            minLevelBox:SetSize(34, 20)
+            minLevelBox:SetPoint("RIGHT", dashLabel, "LEFT", -4, 0)
+            minLevelBox:SetAutoFocus(false)
+            minLevelBox:SetNumeric(true)
+            minLevelBox:SetMaxLetters(4)
+            if filterState.minItemLevel then
+                minLevelBox:SetText(tostring(filterState.minItemLevel))
+            end
+            minLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            minLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
+
+            local ilvlLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            ilvlLabel:SetPoint("RIGHT", minLevelBox, "LEFT", -8, 0)
+            ilvlLabel:SetText("Item Level:")
+
+            local weaponLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            weaponLabel:SetPoint("RIGHT", ilvlLabel, "LEFT", -16, 0)
+            weaponLabel:SetText("Weapons")
+
+            local weaponCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
+            weaponCheck:SetSize(20, 20)
+            weaponCheck:SetPoint("RIGHT", weaponLabel, "LEFT", -2, 0)
+            weaponCheck:SetChecked(filterState.showWeapons)
+            weaponCheck:SetScript("OnClick", function(self)
+                filterState.showWeapons = self:GetChecked() and true or false
+                currentPage = 1
+                RefreshRows()
+            end)
+
+            local armorLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            armorLabel:SetPoint("RIGHT", weaponCheck, "LEFT", -12, 0)
+            armorLabel:SetText("Armor")
+
+            local armorCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
+            armorCheck:SetSize(20, 20)
+            armorCheck:SetPoint("RIGHT", armorLabel, "LEFT", -2, 0)
+            armorCheck:SetChecked(filterState.showArmor)
+            armorCheck:SetScript("OnClick", function(self)
+                filterState.showArmor = self:GetChecked() and true or false
+                currentPage = 1
+                RefreshRows()
+            end)
         end
 
         local header = CreateFrame("Frame", nil, listView)
