@@ -490,29 +490,37 @@ local function GetOrCreateRow(index)
         end
     end)
 
+    -- Anchored from the TOP (not vertically centered via "LEFT" points): a long/suffixed item
+    -- name can wrap to 2 lines, and a vertically-centered wrap pushes its first line above the
+    -- icon and its second line down into the row below. Top-anchoring keeps every column's first
+    -- line level with the icon regardless of how many lines the name wraps to.
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ROW_HEIGHT - 4, ROW_HEIGHT - 4)
-    row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
+    row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", 2, 0)
 
     row.itemName = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+    row.itemName:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 4, 0)
     row.itemName:SetWidth(ITEM_NAME_WIDTH)
     row.itemName:SetJustifyH("LEFT")
+    row.itemName:SetJustifyV("TOP")
 
     row.buyout = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.buyout:SetPoint("LEFT", row.itemName, "RIGHT", COLUMN_GAP, 0)
+    row.buyout:SetPoint("TOPLEFT", row.itemName, "TOPRIGHT", COLUMN_GAP, 0)
     row.buyout:SetWidth(VALUE_COL_WIDTH)
     row.buyout:SetJustifyH("LEFT")
+    row.buyout:SetJustifyV("TOP")
 
     row.disenchantValue = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.disenchantValue:SetPoint("LEFT", row.buyout, "RIGHT", COLUMN_GAP, 0)
+    row.disenchantValue:SetPoint("TOPLEFT", row.buyout, "TOPRIGHT", COLUMN_GAP, 0)
     row.disenchantValue:SetWidth(VALUE_COL_WIDTH)
     row.disenchantValue:SetJustifyH("LEFT")
+    row.disenchantValue:SetJustifyV("TOP")
 
     row.profit = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.profit:SetPoint("LEFT", row.disenchantValue, "RIGHT", COLUMN_GAP, 0)
+    row.profit:SetPoint("TOPLEFT", row.disenchantValue, "TOPRIGHT", COLUMN_GAP, 0)
     row.profit:SetWidth(VALUE_COL_WIDTH)
     row.profit:SetJustifyH("LEFT")
+    row.profit:SetJustifyV("TOP")
 
     rowPool[index] = row
     return row
