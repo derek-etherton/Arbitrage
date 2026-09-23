@@ -18,7 +18,7 @@ function AH.NewListPane(config)
     local currentPage = 1
     local rowPool = {}
     local scrollChild, scrollFrame, emptyMessage, pageLabel, prevPageButton, nextPageButton, reloadButton
-    local headerProfit, headerPercent
+    local headerProfitArrow, headerPercentArrow
     local bulkRefreshInProgress = false
     local sortKey = "profit" -- "profit" | "percent"
     local RefreshRows
@@ -217,8 +217,8 @@ function AH.NewListPane(config)
     end
 
     local function UpdateSortHeaders()
-        headerProfit:SetText(sortKey == "profit" and "|cffffd200Profit \xE2\x96\xBC|r" or "Profit")
-        headerPercent:SetText(sortKey == "percent" and "|cffffd200% \xE2\x96\xBC|r" or "%")
+        headerProfitArrow:SetShown(sortKey == "profit")
+        headerPercentArrow:SetShown(sortKey == "percent")
     end
 
     local function SetSortKey(key)
@@ -294,10 +294,18 @@ function AH.NewListPane(config)
         headerProfitButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
         headerProfitButton:SetScript("OnClick", function() SetSortKey("profit") end)
 
-        headerProfit = headerProfitButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerProfit:SetAllPoints(headerProfitButton)
+        local headerProfit = headerProfitButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerProfit:SetPoint("LEFT", headerProfitButton, "LEFT", 0, 0)
         headerProfit:SetJustifyH("LEFT")
         headerProfit:SetJustifyV("MIDDLE")
+        headerProfit:SetText("Profit")
+
+        -- Same atlas Blizzard's own AH and Auctionator use for sortable column headers.
+        headerProfitArrow = headerProfitButton:CreateTexture(nil, "OVERLAY")
+        headerProfitArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
+        headerProfitArrow:SetPoint("LEFT", headerProfit, "RIGHT", 3, 0)
+        headerProfitArrow:SetTexCoord(0, 1, 1, 0) -- descending orientation; we only ever sort descending
+        headerProfitArrow:Hide()
 
         local headerPercentButton = CreateFrame("Button", nil, header)
         headerPercentButton:SetPoint("LEFT", headerProfitButton, "RIGHT", COLUMN_GAP, 0)
@@ -305,10 +313,17 @@ function AH.NewListPane(config)
         headerPercentButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
         headerPercentButton:SetScript("OnClick", function() SetSortKey("percent") end)
 
-        headerPercent = headerPercentButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerPercent:SetAllPoints(headerPercentButton)
+        local headerPercent = headerPercentButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerPercent:SetPoint("LEFT", headerPercentButton, "LEFT", 0, 0)
         headerPercent:SetJustifyH("LEFT")
         headerPercent:SetJustifyV("MIDDLE")
+        headerPercent:SetText("%")
+
+        headerPercentArrow = headerPercentButton:CreateTexture(nil, "OVERLAY")
+        headerPercentArrow:SetAtlas("auctionhouse-ui-sortarrow", true)
+        headerPercentArrow:SetPoint("LEFT", headerPercent, "RIGHT", 3, 0)
+        headerPercentArrow:SetTexCoord(0, 1, 1, 0)
+        headerPercentArrow:Hide()
 
         UpdateSortHeaders()
 
