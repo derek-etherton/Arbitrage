@@ -1,11 +1,11 @@
 ---@class Arbitrage
 local Arbitrage = select(2, ...)
 
-local Disenchanting = Arbitrage.Disenchanting
+local AH = Arbitrage.AH
 
 -- GetBrowseResults()'s minPrice can be a bid-only auction's current bid, not a real buyout;
 -- per-listing results (below) separate buyoutAmount from bidAmount and let us skip own listings.
-function Disenchanting.CollectBuyoutListings(itemKey)
+function AH.CollectBuyoutListings(itemKey)
     local listings = {}
     for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
         local resultInfo = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
@@ -93,22 +93,22 @@ end
 
 ---@param entry table needs itemId, itemLevel, itemSuffix, battlePetSpeciesID
 ---@param onTimeout function|nil called if results never arrive within a few seconds
-function Disenchanting.RequestLiveSearch(entry, onReady, onTimeout)
-    local itemKey = Disenchanting.MakeItemKeyForEntry(entry)
+function AH.RequestLiveSearch(entry, onReady, onTimeout)
+    local itemKey = AH.MakeItemKeyForEntry(entry)
     table.insert(searchQueue, {itemKey = itemKey, onReady = onReady, onTimeout = onTimeout})
     StartNextSearch()
 end
 
--- BuyView.lua hooks this to refresh its listings after a purchase lands.
-Disenchanting.OnBidReceived = nil
+-- Each buy pane instance appends its own refresh function here to know when a purchase lands.
+AH.BidReceivedListeners = {}
 
 local liveQueryFrame = CreateFrame("Frame")
 liveQueryFrame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
 liveQueryFrame:RegisterEvent("AUCTION_HOUSE_NEW_BID_RECEIVED")
 liveQueryFrame:SetScript("OnEvent", function(_, eventName)
     if eventName == "AUCTION_HOUSE_NEW_BID_RECEIVED" then
-        if Disenchanting.OnBidReceived then
-            Disenchanting.OnBidReceived()
+        for _, listener in ipairs(AH.BidReceivedListeners) do
+            listener()
         end
     else
         TryResolveActive()

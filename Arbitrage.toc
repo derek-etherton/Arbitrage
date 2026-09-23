@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Arbitrage
-## Notes: Adds a "Disenchanting" tab to the Auction House for surfacing buy-to-disenchant profit opportunities.
+## Notes: Adds "Disenchanting" and "Vendoring" tabs to the Auction House for surfacing buy-to-resell profit opportunities.
 ## Version: 0.1.0
 ## SavedVariables: Arbitrage_Profile
 ## RequiredDeps: Auctionator
@@ -13,10 +13,12 @@ Arbitrage.lua
 FormatCoin.lua
 ScanData.lua
 ProfitList.lua
+ProfitStrategies.lua
 ScanListener.lua
-Tabs\Disenchanting\Layout.lua
-Tabs\Disenchanting\ItemDisplay.lua
-Tabs\Disenchanting\LiveSearchQueue.lua
-Tabs\Disenchanting\ListView.lua
-Tabs\Disenchanting\BuyView.lua
-Tabs\DisenchantingTab.lua
+Tabs\Shared\Layout.lua
+Tabs\Shared\ItemDisplay.lua
+Tabs\Shared\LiveSearchQueue.lua
+Tabs\Shared\ListPane.lua
+Tabs\Shared\BuyPane.lua
+Tabs\Disenchanting.lua
+Tabs\Vendoring.lua

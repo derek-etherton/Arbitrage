@@ -1,17 +1,17 @@
 # Arbitrage
 
-A World of Warcraft addon that adds a **Disenchanting** tab to the Auction House, surfacing listings worth buying purely to disenchant — items where `expected disenchant value − buyout price` is highest.
+A World of Warcraft addon that adds **Disenchanting** and **Vendoring** tabs to the Auction House, each surfacing listings worth buying purely to resell — items where `expected resale value − buyout price` is highest (disenchant value for one tab, vendor sell price for the other).
 
 Targets **"WoW: Forever"** only for now (`_classic_beta_`, `WOW_PROJECT_ID == WOW_PROJECT_MAINLINE`, TOC interface `16001`) — that's the only client the maintainer currently tests on. Broader Classic-progression compatibility (Cata/Mists Classic, which also use the modern `AuctionHouseFrame`) is possible later — see [Compatibility](#compatibility) — but isn't a goal right now.
 
 ## Status
 
-Working end-to-end and verified in-game. The Disenchanting tab shows a profit-sorted, paginated list of listings from the last Auctionator full scan on the left, and clicking a row opens a side pane on the right listing that item's actual current buyout listings, with a "Buy" action per listing (confirmation popup, then `C_AuctionHouse.PlaceBid`).
+Working end-to-end and verified in-game. Each tab shows a profit-sorted, paginated list of listings from the last Auctionator full scan on the left, and clicking a row opens a side pane on the right listing that item's actual current buyout listings, with a "Buy" action per listing (confirmation popup, then `C_AuctionHouse.PlaceBid`).
 
 ## Dependencies
 
 - **Auctionator** (`## RequiredDeps`) — the whole feature is meaningless without it. Provides the embedded `LibAHTab-1-0` pattern this addon also embeds, and the only available source of per-listing auction data (via an internal event — see below).
-- **DisenchantBuddy** (`## OptionalDeps`) — provides the actual disenchant-value math via `DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID`. Auctionator has its own internal `GetDisenchantPriceByItemID`, but it's gated to `LE_EXPANSION_WARLORDS_OF_DRAENOR`-and-later gear (see `Auctionator/Source_Mainline/Enchant/Main.lua`) and returns `nil` for all Classic-Era/Forever-style gear — it's not usable here. Without DisenchantBuddy loaded, the list is simply always empty (`ProfitList.lua` returns `{}`).
+- **DisenchantBuddy** (`## OptionalDeps`) — powers the Disenchanting tab's value math via `DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID`. Auctionator has its own internal `GetDisenchantPriceByItemID`, but it's gated to `LE_EXPANSION_WARLORDS_OF_DRAENOR`-and-later gear (see `Auctionator/Source_Mainline/Enchant/Main.lua`) and returns `nil` for all Classic-Era/Forever-style gear — it's not usable here. Without DisenchantBuddy loaded, the Disenchanting tab is simply always empty; the Vendoring tab doesn't depend on it at all (vendor sell price comes straight from `C_Item.GetItemInfo`).
 
 ## How it works
 
@@ -19,7 +19,7 @@ Working end-to-end and verified in-game. The Disenchanting tab shows a profit-so
 
 Blizzard's modern `AuctionHouseFrame` doesn't have a public "add your own tab" API. Auctionator solves this with a small shared library, `LibAHTab-1-0` (embedded, LibStub-based — safe for multiple addons to embed independently, newest version wins at runtime). It creates a real Blizzard tab button (`AuctionHouseFrameDisplayModeTabTemplate`) anchored after the existing tab row, with zero taint risk since it never touches `AuctionHouseFrame.Tabs` directly.
 
-`Tabs/DisenchantingTab.lua` waits for `PLAYER_INTERACTION_MANAGER_FRAME_SHOW` (with `Enum.PlayerInteractionType.Auctioneer`) — the same event Auctionator itself uses to know the AH is open — then calls `LibAHTab:CreateTab(...)` once. The `if AuctionHouseFrame then` guard makes this a safe no-op on Vanilla-engine clients (Classic Era, Anniversary, and the Cata-onward `_classic_` client all use a different, older AH frame that doesn't have `AuctionHouseFrame` at all).
+Each tab's orchestrator file (`Tabs/Disenchanting.lua`, `Tabs/Vendoring.lua`) waits for `PLAYER_INTERACTION_MANAGER_FRAME_SHOW` (with `Enum.PlayerInteractionType.Auctioneer`) — the same event Auctionator itself uses to know the AH is open — then calls `LibAHTab:CreateTab(...)` once. The `if AuctionHouseFrame then` guard makes this a safe no-op on Vanilla-engine clients (Classic Era, Anniversary, and the Cata-onward `_classic_` client all use a different, older AH frame that doesn't have `AuctionHouseFrame` at all).
 
 ### Data pipeline
 
@@ -38,19 +38,28 @@ The payload (`scanData`) is an array of `{replicateInfo, itemLink, timeLeft}`. `
 - `replicateInfo[10]` = total buyout for the stack (divide by quantity for per-unit price)
 - `replicateInfo[17]` = itemID
 
-`ScanData.lua` parses this into `{itemId, itemLink, quantity, buyout}`, skipping zero-quantity, zero-buyout (bid-only), and missing-itemID entries. `ProfitList.lua` then values each via DisenchantBuddy's API, computes `profit = disenchantValue - buyout`, and sorts descending (a local comparator mirroring Auctionator's own `Source/Utilities/Sorting.lua` stable-tiebreak pattern, without depending on Auctionator's internal `Constants.SORT` enum).
+`ScanData.lua` parses this into `{itemId, itemLink, quantity, buyout, itemLevel, itemSuffix, battlePetSpeciesID}`, skipping zero-quantity, zero-buyout (bid-only), and missing-itemID entries.
+
+### Profit strategies
+
+`ProfitList.lua`'s `BuildProfitList(listings, getValue)` is generic — it doesn't know or care what "value" means, just that `profit = getValue(listing) - buyout`. Each tab registers its own `getValue` function under a unique key via `Arbitrage.RegisterProfitStrategy` (`ProfitStrategies.lua`):
+
+- **Disenchanting** (`Tabs/Disenchanting.lua`) — `DisenchantBuddy.API.v1.GetAverageDisenchantValueByItemID`.
+- **Vendoring** (`Tabs/Vendoring.lua`) — `C_Item.GetItemInfo`'s vendor sell price, no external dependency.
+
+On every scan, `ScanListener.lua` calls `Arbitrage.RefreshAllProfitLists(listings)`, which rebuilds every registered strategy's list in one pass and stores each under `Arbitrage.ProfitLists[key]`.
 
 ### UI
 
-The tab's UI lives under `Tabs/Disenchanting/`, split by concern rather than one large file:
+The two tabs share almost all of their UI, under `Tabs/Shared/`:
 
-- **`Layout.lua`** — shared sizing constants (row height, column widths, pane widths) both panes read from.
+- **`Layout.lua`** — sizing constants (row height, column widths, pane widths) both panes read from.
 - **`ItemDisplay.lua`** — item name/quality-color lookups. Randomly-enchanted items (e.g. "War Knife of the Monkey") share one `itemId` across many distinct suffix variants, each a separate AH listing; this is also where `itemLevel`/`itemSuffix`/`battlePetSpeciesID` get turned into the exact `itemKey` needed to find one.
-- **`LiveSearchQueue.lua`** — the AH only supports one active item search at a time, so every live price lookup (hover refresh, the buy pane) goes through a small FIFO queue here rather than each caller firing its own search and stomping on the others.
-- **`ListView.lua`** — the left pane: the paginated (20/page), profit-sorted list, hover-triggered live buyout correction, and the manual "Reload" button.
-- **`BuyView.lua`** — the right pane: opened by clicking a list row, shows that item's real current buyout listings (cheapest 20, with a "+N more" note), and handles the purchase confirm/`PlaceBid` flow.
+- **`LiveSearchQueue.lua`** — the AH only supports one active item search at a time, so every live price lookup (hover refresh, either buy pane) goes through one shared FIFO queue rather than each caller firing its own search and stomping on the others.
+- **`ListPane.lua`** — `AH.NewListPane(config)`, a factory: give it a profit-list key, a "value" column label, and a row-click handler, and it builds a paginated (20/page), profit-sorted list with hover-triggered live buyout correction and a "Reload" button. Each tab creates its own instance.
+- **`BuyPane.lua`** — `AH.NewBuyPane()`, a factory for the side pane opened by clicking a list row: shows that item's real current buyout listings (cheapest 20, with a "+N more" note) and handles the purchase confirm/`PlaceBid` flow. Each instance gets its own `StaticPopupDialogs` key since that table is global.
 
-`Tabs/DisenchantingTab.lua` is just the entry point — it builds the AH-open hook and wires the two panes into one content frame; it doesn't contain any of the actual list/buy logic.
+`Tabs/Disenchanting.lua` and `Tabs/Vendoring.lua` are each just: register a profit strategy, instantiate a list pane + buy pane with the right labels, wire them into one content frame, and hook the AH-open event. Neither contains any list/buy rendering logic itself.
 
 Item icon/name come from the item link (`%[(.-)%]` pattern match) when one's available (replicate scans), falling back to `C_Item.GetItemInfo`/the AH's suffix-aware display text otherwise (browse scans have no link — see `ItemDisplay.lua`).
 
@@ -67,7 +76,7 @@ Currently the `.toc` only declares `## Interface: 16001` (Forever's specific ran
 
 ## Development
 
-Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`) is tested; UI code (`Tabs/DisenchantingTab.lua`, `Tabs/Disenchanting/*.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
+Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`) is tested; UI code (`Tabs/*.lua`, `Tabs/Shared/*.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
 
 ```powershell
 $env:PATH += ";$env:APPDATA\luarocks\bin"   # one-time per shell if not already permanent

@@ -1,17 +1,17 @@
 ---@class Arbitrage
 local Arbitrage = select(2, ...)
 
-local Disenchanting = Arbitrage.Disenchanting
+local AH = Arbitrage.AH
 
 -- Random-suffix items (e.g. "War Knife of the Monkey") share one itemId across many variants;
 -- MakeItemKey needs the exact suffix/level/petSpecies to find real listings for one.
-function Disenchanting.MakeItemKeyForEntry(entry)
+function AH.MakeItemKeyForEntry(entry)
     return C_AuctionHouse.MakeItemKey(entry.itemId, entry.itemLevel, entry.itemSuffix, entry.battlePetSpeciesID)
 end
 
 -- Browse-scan entries have no itemLink, so a random-suffix item falls back to the plain name
 -- ("War Knife") unless the AH's suffix-aware display text is already cached.
-function Disenchanting.GetItemDisplayName(entry)
+function AH.GetItemDisplayName(entry)
     if entry.itemLink then
         local name = entry.itemLink:match("%[(.-)%]")
         if name then
@@ -20,7 +20,7 @@ function Disenchanting.GetItemDisplayName(entry)
     end
 
     if entry.itemSuffix and entry.itemSuffix ~= 0 then
-        local itemKey = Disenchanting.MakeItemKeyForEntry(entry)
+        local itemKey = AH.MakeItemKeyForEntry(entry)
         local itemKeyInfo = C_AuctionHouse.GetItemKeyInfo(itemKey)
         if itemKeyInfo then
             local prettyName = AuctionHouseUtil.GetItemDisplayTextFromItemKey(itemKey, itemKeyInfo, false)
@@ -37,7 +37,7 @@ end
 -- is the modern replacement, same return shape.
 local GetItemQualityColor = C_Item.GetItemQualityColor or GetItemQualityColor
 
-function Disenchanting.GetItemQualityColorCode(itemId)
+function AH.GetItemQualityColorCode(itemId)
     local _, _, quality = C_Item.GetItemInfo(itemId)
     if not quality then
         return ""

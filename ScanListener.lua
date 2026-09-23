@@ -1,23 +1,19 @@
 ---@class Arbitrage
 local Arbitrage = select(2, ...)
 
----@type table[] the current profit-sorted listings from the last completed Auctionator scan
-Arbitrage.ProfitList = Arbitrage.ProfitList or {}
-
 ---@param listings table[] {itemId, itemLink, quantity, buyout}[]
 ---@param source string which scan produced this, for the diagnostic print below
 local function UpdateProfitList(listings, source)
-    Arbitrage.ProfitList = Arbitrage.BuildProfitList(listings)
+    Arbitrage.RefreshAllProfitLists(listings)
+
     -- Temporary diagnostic while we confirm scan freshness.
-    local top = Arbitrage.ProfitList[1]
-    print(string.format(
-        "Arbitrage: %s scan complete - %d listings, %d profitable%s",
-        source, #listings, #Arbitrage.ProfitList,
-        top and (", top: item " .. top.itemId .. " buyout " .. Arbitrage.FormatCoin(top.buyout, 12)) or ""
-    ))
-    if Arbitrage.OnProfitListUpdated then
-        Arbitrage.OnProfitListUpdated()
+    local summary = {}
+    for key, profitList in pairs(Arbitrage.ProfitLists) do
+        local top = profitList[1]
+        table.insert(summary, string.format("%s: %d profitable%s", key, #profitList,
+            top and (", top buyout " .. Arbitrage.FormatCoin(top.buyout, 12)) or ""))
     end
+    print(string.format("Arbitrage: %s scan complete - %d listings. %s", source, #listings, table.concat(summary, " | ")))
 end
 
 local replicateListener = {}
