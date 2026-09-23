@@ -204,7 +204,10 @@ function AH.NewBuyPane()
 
         buyViewName = buyView:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
         buyViewName:SetPoint("LEFT", buyViewIcon, "RIGHT", 6, 0)
+        buyViewName:SetPoint("RIGHT", closeButton, "LEFT", -8, 0)
         buyViewName:SetJustifyH("LEFT")
+        buyViewName:SetWordWrap(true)
+        buyViewName:SetMaxLines(1)
 
         local header = CreateFrame("Frame", nil, buyView)
         header:SetPoint("TOPLEFT", buyViewIcon, "BOTTOMLEFT", 0, -8)
