@@ -22,6 +22,9 @@ function AH.NewListPane(config)
     local bulkRefreshInProgress = false
     local sortKey = "profit" -- "profit" | "percent"
     local RefreshRows
+    -- Only set (from Arbitrage.Settings[config.filterSettingsKey]) when config.filterSettingsKey
+    -- is given; nil disables the whole filter bar for tabs that don't need one (e.g. Vendoring).
+    local filterState
     -- Set once Create() has anchored scrollFrame, from its actual measured height - fills
     -- whatever vertical space the AH window gives us instead of guessing a fixed row count.
     local pageSize = AH.PAGE_SIZE
@@ -200,17 +203,62 @@ function AH.NewListPane(config)
         return a.sortingIndex < b.sortingIndex
     end
 
+    -- classID/itemLevel aren't in scan data (full scans don't have itemLevel at all - see
+    -- ScanData.lua), so filtering reads them straight from C_Item.GetItemInfo like the rest of
+    -- the display code does. An entry whose info hasn't been cached yet is shown rather than
+    -- hidden, since there's no event hook here to re-filter once it loads.
+    local function PassesFilters(entry)
+        if not filterState then
+            return true
+        end
+
+        if filterState.showArmor == false or filterState.showWeapons == false then
+            local classId = select(12, C_Item.GetItemInfo(entry.itemId))
+            if classId == Enum.ItemClass.Armor and filterState.showArmor == false then
+                return false
+            end
+            if classId == Enum.ItemClass.Weapon and filterState.showWeapons == false then
+                return false
+            end
+        end
+
+        if filterState.minItemLevel or filterState.maxItemLevel then
+            local itemLevel = select(4, C_Item.GetItemInfo(entry.itemId))
+            if itemLevel then
+                if filterState.minItemLevel and itemLevel < filterState.minItemLevel then
+                    return false
+                end
+                if filterState.maxItemLevel and itemLevel > filterState.maxItemLevel then
+                    return false
+                end
+            end
+        end
+
+        return true
+    end
+
     -- Arbitrage.ProfitLists[key] is already sorted by profit descending (BuildProfitList), so
     -- only the "%" sort needs its own copy; entries themselves are shared, not duplicated.
     local function GetSortedProfitList()
         local source = Arbitrage.ProfitLists[config.profitListKey] or {}
+
+        local filtered = source
+        if filterState then
+            filtered = {}
+            for i = 1, #source do
+                if PassesFilters(source[i]) then
+                    table.insert(filtered, source[i])
+                end
+            end
+        end
+
         if sortKey ~= "percent" then
-            return source
+            return filtered
         end
 
         local sorted = {}
-        for i = 1, #source do
-            sorted[i] = source[i]
+        for i = 1, #filtered do
+            sorted[i] = filtered[i]
         end
         table.sort(sorted, PercentDescComparator)
         return sorted
@@ -327,6 +375,90 @@ function AH.NewListPane(config)
 
         UpdateSortHeaders()
 
+        local topAnchorFrame = header
+
+        if config.filterSettingsKey then
+            Arbitrage.Settings[config.filterSettingsKey] = Arbitrage.Settings[config.filterSettingsKey] or {
+                showArmor = true,
+                showWeapons = true,
+            }
+            filterState = Arbitrage.Settings[config.filterSettingsKey]
+
+            local filterBar = CreateFrame("Frame", nil, listView)
+            filterBar:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 4, -4)
+            filterBar:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", -4, -4)
+            filterBar:SetHeight(20)
+            topAnchorFrame = filterBar
+
+            local armorCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
+            armorCheck:SetPoint("LEFT", filterBar, "LEFT", 0, 0)
+            armorCheck:SetSize(20, 20)
+            armorCheck:SetChecked(filterState.showArmor)
+            armorCheck:SetScript("OnClick", function(self)
+                filterState.showArmor = self:GetChecked() and true or false
+                currentPage = 1
+                RefreshRows()
+            end)
+
+            local armorLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            armorLabel:SetPoint("LEFT", armorCheck, "RIGHT", 2, 0)
+            armorLabel:SetText("Armor")
+
+            local weaponCheck = CreateFrame("CheckButton", nil, filterBar, "UICheckButtonTemplate")
+            weaponCheck:SetPoint("LEFT", armorLabel, "RIGHT", 12, 0)
+            weaponCheck:SetSize(20, 20)
+            weaponCheck:SetChecked(filterState.showWeapons)
+            weaponCheck:SetScript("OnClick", function(self)
+                filterState.showWeapons = self:GetChecked() and true or false
+                currentPage = 1
+                RefreshRows()
+            end)
+
+            local weaponLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            weaponLabel:SetPoint("LEFT", weaponCheck, "RIGHT", 2, 0)
+            weaponLabel:SetText("Weapons")
+
+            local ilvlLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            ilvlLabel:SetPoint("LEFT", weaponLabel, "RIGHT", 16, 0)
+            ilvlLabel:SetText("Item Level:")
+
+            local minLevelBox, maxLevelBox
+            local function ApplyItemLevelFilter()
+                filterState.minItemLevel = tonumber(minLevelBox:GetText())
+                filterState.maxItemLevel = tonumber(maxLevelBox:GetText())
+                currentPage = 1
+                RefreshRows()
+            end
+
+            minLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
+            minLevelBox:SetSize(34, 20)
+            minLevelBox:SetPoint("LEFT", ilvlLabel, "RIGHT", 8, 0)
+            minLevelBox:SetAutoFocus(false)
+            minLevelBox:SetNumeric(true)
+            minLevelBox:SetMaxLetters(4)
+            if filterState.minItemLevel then
+                minLevelBox:SetText(tostring(filterState.minItemLevel))
+            end
+            minLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            minLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
+
+            local dashLabel = filterBar:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+            dashLabel:SetPoint("LEFT", minLevelBox, "RIGHT", 4, 0)
+            dashLabel:SetText("-")
+
+            maxLevelBox = CreateFrame("EditBox", nil, filterBar, "InputBoxTemplate")
+            maxLevelBox:SetSize(34, 20)
+            maxLevelBox:SetPoint("LEFT", dashLabel, "RIGHT", 4, 0)
+            maxLevelBox:SetAutoFocus(false)
+            maxLevelBox:SetNumeric(true)
+            maxLevelBox:SetMaxLetters(4)
+            if filterState.maxItemLevel then
+                maxLevelBox:SetText(tostring(filterState.maxItemLevel))
+            end
+            maxLevelBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+            maxLevelBox:SetScript("OnEditFocusLost", ApplyItemLevelFilter)
+        end
+
         local footer = CreateFrame("Frame", nil, listView)
         footer:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 4, 4)
         footer:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -4, 4)
@@ -362,7 +494,7 @@ function AH.NewListPane(config)
         pageLabel:SetJustifyH("CENTER")
 
         scrollFrame = CreateFrame("ScrollFrame", nil, listView, "UIPanelScrollFrameTemplate")
-        scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+        scrollFrame:SetPoint("TOPLEFT", topAnchorFrame, "BOTTOMLEFT", 0, -4)
         scrollFrame:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", -26, 4)
 
         scrollChild = CreateFrame("Frame", nil, scrollFrame)

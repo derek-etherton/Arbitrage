@@ -17,6 +17,7 @@ local listPane = AH.NewListPane({
     valueLabel = "DE Value",
     emptyText = "Run a scan in Auctionator to populate this list.",
     onRowClick = function(entry) buyPane.Show(entry) end,
+    filterSettingsKey = "DisenchantingFilters",
 })
 
 AH.RegisterTab({
