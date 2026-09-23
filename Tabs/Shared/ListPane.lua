@@ -18,7 +18,10 @@ function AH.NewListPane(config)
     local currentPage = 1
     local rowPool = {}
     local scrollChild, scrollFrame, emptyMessage, pageLabel, prevPageButton, nextPageButton, reloadButton
+    local headerProfit, headerPercent
     local bulkRefreshInProgress = false
+    local sortKey = "profit" -- "profit" | "percent"
+    local RefreshRows
     -- Set once Create() has anchored scrollFrame, from its actual measured height - fills
     -- whatever vertical space the AH window gives us instead of guessing a fixed row count.
     local pageSize = AH.PAGE_SIZE
@@ -188,8 +191,50 @@ function AH.NewListPane(config)
         row:Show()
     end
 
-    local function RefreshRows()
-        local profitList = Arbitrage.ProfitLists[config.profitListKey] or {}
+    local function PercentDescComparator(a, b)
+        local ratioA = a.buyout > 0 and (a.profit / a.buyout) or 0
+        local ratioB = b.buyout > 0 and (b.profit / b.buyout) or 0
+        if ratioA ~= ratioB then
+            return ratioA > ratioB
+        end
+        return a.sortingIndex < b.sortingIndex
+    end
+
+    -- Arbitrage.ProfitLists[key] is already sorted by profit descending (BuildProfitList), so
+    -- only the "%" sort needs its own copy; entries themselves are shared, not duplicated.
+    local function GetSortedProfitList()
+        local source = Arbitrage.ProfitLists[config.profitListKey] or {}
+        if sortKey ~= "percent" then
+            return source
+        end
+
+        local sorted = {}
+        for i = 1, #source do
+            sorted[i] = source[i]
+        end
+        table.sort(sorted, PercentDescComparator)
+        return sorted
+    end
+
+    -- Color the active sort column gold instead of using an arrow glyph, since WoW's default
+    -- fonts don't reliably render arrow/caret unicode characters across all locales.
+    local function UpdateSortHeaders()
+        headerProfit:SetText(sortKey == "profit" and "|cffffd200Profit|r" or "Profit")
+        headerPercent:SetText(sortKey == "percent" and "|cffffd200%|r" or "%")
+    end
+
+    local function SetSortKey(key)
+        if sortKey == key then
+            return
+        end
+        sortKey = key
+        currentPage = 1
+        UpdateSortHeaders()
+        RefreshRows()
+    end
+
+    RefreshRows = function()
+        local profitList = GetSortedProfitList()
         local totalItems = #profitList
         local totalPages = math.max(1, math.ceil(totalItems / pageSize))
         currentPage = math.min(math.max(currentPage, 1), totalPages)
@@ -245,17 +290,29 @@ function AH.NewListPane(config)
         headerValue:SetJustifyH("LEFT")
         headerValue:SetText(config.valueLabel)
 
-        local headerProfit = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerProfit:SetPoint("LEFT", headerValue, "RIGHT", COLUMN_GAP, 0)
-        headerProfit:SetWidth(VALUE_COL_WIDTH)
-        headerProfit:SetJustifyH("LEFT")
-        headerProfit:SetText("Profit")
+        local headerProfitButton = CreateFrame("Button", nil, header)
+        headerProfitButton:SetPoint("LEFT", headerValue, "RIGHT", COLUMN_GAP, 0)
+        headerProfitButton:SetSize(VALUE_COL_WIDTH, ROW_HEIGHT)
+        headerProfitButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        headerProfitButton:SetScript("OnClick", function() SetSortKey("profit") end)
 
-        local headerPercent = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        headerPercent:SetPoint("LEFT", headerProfit, "RIGHT", COLUMN_GAP, 0)
-        headerPercent:SetWidth(PERCENT_COL_WIDTH)
+        headerProfit = headerProfitButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerProfit:SetAllPoints(headerProfitButton)
+        headerProfit:SetJustifyH("LEFT")
+        headerProfit:SetJustifyV("MIDDLE")
+
+        local headerPercentButton = CreateFrame("Button", nil, header)
+        headerPercentButton:SetPoint("LEFT", headerProfitButton, "RIGHT", COLUMN_GAP, 0)
+        headerPercentButton:SetSize(PERCENT_COL_WIDTH, ROW_HEIGHT)
+        headerPercentButton:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        headerPercentButton:SetScript("OnClick", function() SetSortKey("percent") end)
+
+        headerPercent = headerPercentButton:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerPercent:SetAllPoints(headerPercentButton)
         headerPercent:SetJustifyH("LEFT")
-        headerPercent:SetText("%")
+        headerPercent:SetJustifyV("MIDDLE")
+
+        UpdateSortHeaders()
 
         local footer = CreateFrame("Frame", nil, listView)
         footer:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 4, 4)
