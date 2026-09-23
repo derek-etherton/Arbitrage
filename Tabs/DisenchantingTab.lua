@@ -20,17 +20,25 @@ local LIST_PANE_WIDTH = LIST_CONTENT_WIDTH + 34 -- + scrollbar width and a littl
 local PANE_GAP = 10 -- gap between the list pane and the buy sub-view
 
 local BUY_CONTENT_WIDTH = 150 + 8 + 100 + 8 + 80 -- buyout + gap + quantity + gap + Buy button
+local BUY_LISTINGS_PAGE_SIZE = 20 -- only render the cheapest N; a popular item can have hundreds
+
+local PAGE_SIZE = 20
+local currentPage = 1
 
 ---@type table[] pooled row frames, reused and rebound as the list updates
 local rowPool = {}
 local scrollChild
 local emptyMessage
 local listView
+local pageLabel
+local prevPageButton
+local nextPageButton
 
 ---@type table[] pooled rows for the per-item listings shown in the buy sub-view
 local buyRowPool = {}
 local buyScrollChild
 local buyEmptyMessage
+local buyMoreLabel
 local buyView
 local buyViewIcon
 local buyViewName
@@ -100,8 +108,21 @@ end
 local pendingItemKey, pendingOnReady
 local currentPollTicker
 
+-- Mirrors Auctionator's own AuctionatorAHSearchScanFrameMixin: for a popular item, results
+-- stream in over several batches and HasFullItemSearchResults can take a while (sometimes
+-- longer than our poll window) to go true. Accepting the first non-empty batch - like
+-- Auctionator does - keeps this fast; since we always sort ascending by price, that first
+-- batch already contains the cheapest listings, which is all this pane cares about.
+local function IsItemSearchReady(itemKey)
+    if not C_AuctionHouse.HasSearchResults(itemKey) then
+        return false
+    end
+    return C_AuctionHouse.HasFullItemSearchResults(itemKey)
+        or C_AuctionHouse.GetItemSearchResultsQuantity(itemKey) > 0
+end
+
 local function TryResolvePending()
-    if not pendingItemKey or not C_AuctionHouse.HasFullItemSearchResults(pendingItemKey) then
+    if not pendingItemKey or not IsItemSearchReady(pendingItemKey) then
         return false
     end
 
@@ -249,7 +270,9 @@ local function GetOrCreateBuyRow(index)
     return row
 end
 
-local function RenderBuyListings(listings)
+---@param listings table[] already capped to at most BUY_LISTINGS_PAGE_SIZE entries
+---@param totalCount number|nil how many real listings exist in total, before capping
+local function RenderBuyListings(listings, totalCount)
     for i = 1, #listings do
         local listing = listings[i]
         local row = GetOrCreateBuyRow(i)
@@ -266,6 +289,12 @@ local function RenderBuyListings(listings)
 
     buyScrollChild:SetHeight(math.max(#listings * ROW_HEIGHT, 1))
     buyEmptyMessage:SetShown(#listings == 0)
+
+    local remaining = (totalCount or #listings) - #listings
+    buyMoreLabel:SetShown(remaining > 0)
+    if remaining > 0 then
+        buyMoreLabel:SetText(string.format("+ %d more listing(s) not shown (showing the %d cheapest)", remaining, #listings))
+    end
 end
 
 local function RefreshBuyView()
@@ -280,10 +309,14 @@ local function RefreshBuyView()
             return
         end
         local listings = CollectBuyoutListings(itemKey)
+        local totalCount = #listings
         if #listings == 0 then
             buyEmptyMessage:SetText("No active listings for this item right now.")
         end
-        RenderBuyListings(listings)
+        for i = #listings, BUY_LISTINGS_PAGE_SIZE + 1, -1 do
+            listings[i] = nil
+        end
+        RenderBuyListings(listings, totalCount)
     end, function()
         if currentBuyEntry ~= entry then
             return
@@ -398,11 +431,16 @@ end
 
 local function RefreshRows()
     local profitList = Arbitrage.ProfitList or {}
-    local displayCount = math.min(#profitList, MAX_DISPLAYED_ROWS)
+    local totalItems = math.min(#profitList, MAX_DISPLAYED_ROWS)
+    local totalPages = math.max(1, math.ceil(totalItems / PAGE_SIZE))
+    currentPage = math.min(math.max(currentPage, 1), totalPages)
+
+    local startIndex = (currentPage - 1) * PAGE_SIZE
+    local displayCount = math.min(PAGE_SIZE, totalItems - startIndex)
 
     for i = 1, displayCount do
         local row = GetOrCreateRow(i)
-        SetRowData(row, profitList[i])
+        SetRowData(row, profitList[startIndex + i])
     end
 
     for i = displayCount + 1, #rowPool do
@@ -410,7 +448,11 @@ local function RefreshRows()
     end
 
     scrollChild:SetHeight(math.max(displayCount * ROW_HEIGHT, 1))
-    emptyMessage:SetShown(#profitList == 0)
+    emptyMessage:SetShown(totalItems == 0)
+
+    pageLabel:SetText(string.format("Page %d / %d (%d items)", currentPage, totalPages, totalItems))
+    if currentPage > 1 then prevPageButton:Enable() else prevPageButton:Disable() end
+    if currentPage < totalPages then nextPageButton:Enable() else nextPageButton:Disable() end
 end
 
 Arbitrage.OnProfitListUpdated = RefreshRows
@@ -450,9 +492,37 @@ local function CreateListView(frame)
     headerProfit:SetJustifyH("LEFT")
     headerProfit:SetText("Profit")
 
+    local footer = CreateFrame("Frame", nil, listView)
+    footer:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 4, 4)
+    footer:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -4, 4)
+    footer:SetHeight(ROW_HEIGHT + 4)
+
+    prevPageButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    prevPageButton:SetSize(60, ROW_HEIGHT + 2)
+    prevPageButton:SetPoint("LEFT", footer, "LEFT", 0, 0)
+    prevPageButton:SetText("< Prev")
+    prevPageButton:SetScript("OnClick", function()
+        currentPage = currentPage - 1
+        RefreshRows()
+    end)
+
+    nextPageButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    nextPageButton:SetSize(60, ROW_HEIGHT + 2)
+    nextPageButton:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
+    nextPageButton:SetText("Next >")
+    nextPageButton:SetScript("OnClick", function()
+        currentPage = currentPage + 1
+        RefreshRows()
+    end)
+
+    pageLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    pageLabel:SetPoint("LEFT", prevPageButton, "RIGHT", 4, 0)
+    pageLabel:SetPoint("RIGHT", nextPageButton, "LEFT", -4, 0)
+    pageLabel:SetJustifyH("CENTER")
+
     local scrollFrame = CreateFrame("ScrollFrame", "ArbitrageDisenchantingScrollFrame", listView, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
-    scrollFrame:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -26, 4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", -26, 4)
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetWidth(LIST_CONTENT_WIDTH)
@@ -460,7 +530,7 @@ local function CreateListView(frame)
     scrollFrame:SetScrollChild(scrollChild)
 
     emptyMessage = listView:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
-    emptyMessage:SetPoint("CENTER", listView, "CENTER", 0, 0)
+    emptyMessage:SetPoint("CENTER", scrollFrame, "CENTER", 0, 0)
     emptyMessage:SetText("Run a scan in Auctionator to populate this list.")
 
     RefreshRows()
@@ -509,9 +579,15 @@ local function CreateBuyView(frame)
     headerQuantity:SetJustifyH("LEFT")
     headerQuantity:SetText("Quantity")
 
+    buyMoreLabel = buyView:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    buyMoreLabel:SetPoint("BOTTOMLEFT", buyView, "BOTTOMLEFT", 4, 4)
+    buyMoreLabel:SetPoint("BOTTOMRIGHT", buyView, "BOTTOMRIGHT", -4, 4)
+    buyMoreLabel:SetJustifyH("LEFT")
+    buyMoreLabel:Hide()
+
     local scrollFrame = CreateFrame("ScrollFrame", "ArbitrageBuyItemScrollFrame", buyView, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
-    scrollFrame:SetPoint("BOTTOMRIGHT", buyView, "BOTTOMRIGHT", -26, 4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", buyMoreLabel, "TOPRIGHT", -26, 4)
 
     buyScrollChild = CreateFrame("Frame", nil, scrollFrame)
     buyScrollChild:SetWidth(BUY_CONTENT_WIDTH)
