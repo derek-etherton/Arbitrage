@@ -19,6 +19,7 @@ globals = {
     "StaticPopupDialogs",
     "StaticPopup_Show",
     "GetCoinTextureString",
+    "GetItemQualityColor",
     "GetBuildInfo",
     "WOW_PROJECT_ID",
     "WOW_PROJECT_MAINLINE",

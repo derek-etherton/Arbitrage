@@ -76,6 +76,17 @@ local function GetItemDisplayName(entry)
     return C_Item.GetItemInfo(entry.itemId) or ("Item #" .. entry.itemId)
 end
 
+-- None of GetItemDisplayName's paths embed quality coloring, so every name rendered in
+-- GameFontNormal's default (pale yellow) regardless of actual rarity - apply it uniformly here.
+local function GetItemQualityColorCode(itemId)
+    local _, _, quality = C_Item.GetItemInfo(itemId)
+    if not quality then
+        return ""
+    end
+    local _, _, _, hex = GetItemQualityColor(quality)
+    return hex or ""
+end
+
 local function ShowRowTooltip(row)
     local entry = row.entry
     if not entry then
@@ -406,7 +417,7 @@ end
 local function ShowBuyView(entry)
     currentBuyEntry = entry
     buyViewIcon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
-    buyViewName:SetText(GetItemDisplayName(entry))
+    buyViewName:SetText(GetItemQualityColorCode(entry.itemId) .. GetItemDisplayName(entry) .. "|r")
     buyEmptyMessage:SetText("Loading current listings...")
     RenderBuyListings({})
 
@@ -502,7 +513,7 @@ end
 local function SetRowData(row, entry)
     row.entry = entry
     row.icon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
-    row.itemName:SetText(GetItemDisplayName(entry))
+    row.itemName:SetText(GetItemQualityColorCode(entry.itemId) .. GetItemDisplayName(entry) .. "|r")
     row.disenchantValue:SetText(Arbitrage.FormatCoin(entry.disenchantValue, 12))
     UpdateRowValueText(row, entry)
     row:Show()
