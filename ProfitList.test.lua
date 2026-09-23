@@ -21,6 +21,15 @@ describe("BuildProfitList", function()
         assert.are_same({}, result)
     end)
 
+    it("should exclude listings with zero or negative profit", function()
+        local result = Arbitrage.BuildProfitList({
+            {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 500}, -- profit 0
+            {itemId = 222, itemLink = "linkB", quantity = 1, buyout = 600}, -- profit -100
+        }, function() return 500 end)
+
+        assert.are_same({}, result)
+    end)
+
     it("should compute profit as value minus buyout", function()
         local result = Arbitrage.BuildProfitList({
             {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 200},

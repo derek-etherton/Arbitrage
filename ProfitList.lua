@@ -20,18 +20,21 @@ function Arbitrage.BuildProfitList(listings, getValue)
         local listing = listings[i]
         local value = getValue(listing)
         if value then
-            table.insert(profitList, {
-                itemId = listing.itemId,
-                itemLink = listing.itemLink,
-                quantity = listing.quantity,
-                buyout = listing.buyout,
-                itemLevel = listing.itemLevel or 0,
-                itemSuffix = listing.itemSuffix or 0,
-                battlePetSpeciesID = listing.battlePetSpeciesID or 0,
-                value = value,
-                profit = value - listing.buyout,
-                sortingIndex = #profitList + 1,
-            })
+            local profit = value - listing.buyout
+            if profit > 0 then
+                table.insert(profitList, {
+                    itemId = listing.itemId,
+                    itemLink = listing.itemLink,
+                    quantity = listing.quantity,
+                    buyout = listing.buyout,
+                    itemLevel = listing.itemLevel or 0,
+                    itemSuffix = listing.itemSuffix or 0,
+                    battlePetSpeciesID = listing.battlePetSpeciesID or 0,
+                    value = value,
+                    profit = profit,
+                    sortingIndex = #profitList + 1,
+                })
+            end
         end
     end
 
