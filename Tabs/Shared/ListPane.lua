@@ -37,7 +37,11 @@ function AH.NewListPane(config)
 
     local function UpdateRowValueText(row, entry)
         row.buyout:SetText(Arbitrage.FormatCoin(entry.buyout, 12))
-        row.profit:SetText((entry.profit >= 0 and "|cff1eff00" or "|cffff0000") .. Arbitrage.FormatCoin(entry.profit, 12) .. "|r")
+        -- FormatCoin (GetCoinTextureString) errors on a negative amount, so a loss needs its
+        -- own "-" prefix with the absolute value passed through instead.
+        local isLoss = entry.profit < 0
+        local profitText = (isLoss and "-" or "") .. Arbitrage.FormatCoin(math.abs(entry.profit), 12)
+        row.profit:SetText((isLoss and "|cffff0000" or "|cff1eff00") .. profitText .. "|r")
     end
 
     local function ApplyRowAppearance(row, entry)
