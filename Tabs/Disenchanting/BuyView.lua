@@ -36,9 +36,8 @@ local function ApplyBuyRowAppearance(row)
     end
 end
 
--- The AUCTION_HOUSE_NEW_BID_RECEIVED refresh (which drops sold-out listings entirely) can take a
--- moment to arrive from the server; grey the row out immediately on confirm so it's clear the
--- purchase went through and the row can't be bought again while that refresh is in flight.
+-- Grey the row out immediately on confirm, since the server-driven refresh that actually
+-- removes a sold listing can take a moment.
 local function MarkListingPurchased(listing)
     listing.purchased = true
     for i = 1, #buyRowPool do
@@ -123,7 +122,6 @@ local function RefreshBuyView()
     local entry = currentBuyEntry
     Disenchanting.RequestLiveSearch(entry, function(itemKey)
         if currentBuyEntry ~= entry then
-            -- User navigated back (or to a different item) before results arrived.
             return
         end
         local listings = Disenchanting.CollectBuyoutListings(itemKey)
@@ -144,7 +142,6 @@ local function RefreshBuyView()
     end)
 end
 
--- Wire ourselves into the search queue's generic "a purchase landed" hook.
 Disenchanting.OnBidReceived = RefreshBuyView
 
 function Disenchanting.ShowBuyView(entry)

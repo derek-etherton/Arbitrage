@@ -8,8 +8,7 @@ Arbitrage.ProfitList = Arbitrage.ProfitList or {}
 ---@param source string which scan produced this, for the diagnostic print below
 local function UpdateProfitList(listings, source)
     Arbitrage.ProfitList = Arbitrage.BuildProfitList(listings)
-    -- Temporary diagnostic: confirms each scan actually replaces the list with fresh data,
-    -- rather than reusing/accumulating stale results, and shows the current top item's buyout.
+    -- Temporary diagnostic while we confirm scan freshness.
     local top = Arbitrage.ProfitList[1]
     print(string.format(
         "Arbitrage: %s scan complete - %d listings, %d profitable%s",
@@ -21,8 +20,6 @@ local function UpdateProfitList(listings, source)
     end
 end
 
--- Auctionator has two distinct full-scan mechanisms (see ScanData.lua for why); the default
--- in-game scan button uses the "incremental"/summary-mode one, so both are listened for.
 local replicateListener = {}
 function replicateListener.ReceiveEvent(_, _, scanData)
     UpdateProfitList(Arbitrage.ParseReplicateScanData(scanData), "Replicate")

@@ -22,9 +22,6 @@ local prevPageButton
 local nextPageButton
 local reloadButton
 
--- While the bulk reload below is running, all row live-lookups share the single active-search
--- slot in sequence; a hover-triggered lookup jumping the queue would strand whichever row's
--- request it displaced (nothing would ever call that row's completion callback again).
 local bulkRefreshInProgress = false
 
 local function ShowRowTooltip(row)
@@ -67,8 +64,6 @@ local function RequestLiveBuyout(row, onDone)
     Disenchanting.RequestLiveSearch(entry, function(itemKey)
         if row.entry == entry then
             local listings = Disenchanting.CollectBuyoutListings(itemKey)
-            -- No buyout listing found - either sold out or everything left is bid-only/owned by
-            -- us; either way it's not something we can point at a fixed buyout price for now.
             entry.confirmedGone = listings[1] == nil
             if listings[1] then
                 entry.buyout = listings[1].buyout
@@ -76,7 +71,6 @@ local function RequestLiveBuyout(row, onDone)
             end
             ApplyRowAppearance(row, entry)
         end
-        -- else: row was rebound to a different item (list refreshed) while the query was in flight.
         Finish()
     end, Finish)
 end
@@ -140,10 +134,8 @@ local function GetOrCreateRow(index)
         end
     end)
 
-    -- Anchored from the TOP (not vertically centered via "LEFT" points): a long/suffixed item
-    -- name can wrap to 2 lines, and a vertically-centered wrap pushes its first line above the
-    -- icon and its second line down into the row below. Top-anchoring keeps every column's first
-    -- line level with the icon regardless of how many lines the name wraps to.
+    -- Top-anchored (not vertically centered) so a wrapped 2-line item name doesn't push its
+    -- first line above the icon and overlap the row below.
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(ROW_HEIGHT - 4, ROW_HEIGHT - 4)
     row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", 2, 0)
@@ -218,7 +210,6 @@ function Disenchanting.CreateListView(frame)
     listView:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     listView:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
     listView:SetWidth(LIST_PANE_WIDTH)
-    -- BuyView.lua anchors its pane off this frame; must be set before CreateBuyView runs.
     Disenchanting.ListView = listView
 
     local header = CreateFrame("Frame", nil, listView)

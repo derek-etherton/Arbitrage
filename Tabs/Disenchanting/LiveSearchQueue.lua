@@ -3,10 +3,8 @@ local Arbitrage = select(2, ...)
 
 local Disenchanting = Arbitrage.Disenchanting
 
--- C_AuctionHouse.GetBrowseResults()'s minPrice is an aggregate "cheapest price" that can reflect
--- a bid-only auction's current bid when nothing has a buyout - not safe to treat as a buyout. The
--- per-listing item search results (below) separate buyoutAmount from bidAmount explicitly, and
--- also let us exclude the player's own listings (can't buy your own auction).
+-- GetBrowseResults()'s minPrice can be a bid-only auction's current bid, not a real buyout;
+-- per-listing results (below) separate buyoutAmount from bidAmount and let us skip own listings.
 function Disenchanting.CollectBuyoutListings(itemKey)
     local listings = {}
     for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
@@ -24,22 +22,16 @@ function Disenchanting.CollectBuyoutListings(itemKey)
     return listings
 end
 
--- The AH only supports one active item search at a time. Earlier this shared a single
--- overwrite-on-request slot between the hover-triggered refresh and the buy sub-view - but with
--- both visible side by side, hovering a list row while the buy pane's search was in flight would
--- silently steal that slot, and NOTHING would ever call the buy pane's callback again (not
--- success, not timeout) - a permanent hang, not a performance issue. A real FIFO queue instead:
--- every request eventually gets its turn and is guaranteed to resolve or time out.
+-- The AH only supports one active item search at a time, so requests queue up rather than
+-- overwrite each other (an overwrite could strand an in-flight request with no callback ever
+-- firing, since it never gets a "cancelled" signal from Blizzard either).
 local searchQueue = {}
 local activeSearch -- {itemKey, onReady, onTimeout}
 local currentPollTicker
 local StartNextSearch
 
--- Mirrors Auctionator's own AuctionatorAHSearchScanFrameMixin: for a popular item, results
--- stream in over several batches and HasFullItemSearchResults can take a while (sometimes
--- longer than our poll window) to go true. Accepting the first non-empty batch - like
--- Auctionator does - keeps this fast; since we always sort ascending by price, that first
--- batch already contains the cheapest listings, which is all this pane cares about.
+-- HasFullItemSearchResults can take a while for a popular item; accept the first non-empty
+-- batch instead (like Auctionator does) since we sort ascending by price anyway.
 local function IsItemSearchReady(itemKey)
     if not C_AuctionHouse.HasSearchResults(itemKey) then
         return false
@@ -78,9 +70,7 @@ StartNextSearch = function()
         C_AuctionHouse.SendSearchQuery(activeSearch.itemKey, sorts, true)
     end
 
-    -- Blizzard doesn't always re-fire ITEM_SEARCH_RESULTS_UPDATED when a search's results are
-    -- already fully cached (e.g. this exact item was searched moments ago via hover) - without
-    -- this poll, that leaves a request waiting forever for an event that never comes.
+    -- Poll as a fallback: Blizzard doesn't always re-fire the event for already-cached results.
     local attempts = 0
     currentPollTicker = C_Timer.NewTicker(0.2, function(ticker)
         if TryResolveActive() then
@@ -109,9 +99,7 @@ function Disenchanting.RequestLiveSearch(entry, onReady, onTimeout)
     StartNextSearch()
 end
 
--- BuyView.lua sets this to know when to refresh its listings after a purchase (ours or otherwise)
--- lands. Kept as a settable hook rather than a direct call so this module doesn't need to know
--- anything about the buy pane.
+-- BuyView.lua hooks this to refresh its listings after a purchase lands.
 Disenchanting.OnBidReceived = nil
 
 local liveQueryFrame = CreateFrame("Frame")
