@@ -14,6 +14,16 @@ local CONTENT_WIDTH = 656
 local rowPool = {}
 local scrollChild
 local emptyMessage
+local listView
+
+---@type table[] pooled rows for the per-item listings shown in the buy sub-view
+local buyRowPool = {}
+local buyScrollChild
+local buyEmptyMessage
+local buyView
+local buyViewIcon
+local buyViewName
+local currentBuyEntry
 
 -- Browse-scan results (see ScanData.lua) have no itemLink, only an itemId; fall back to
 -- C_Item.GetItemInfo, which accepts a bare itemId and works even without a link.
@@ -25,22 +35,6 @@ local function GetItemDisplayName(itemId, itemLink)
         end
     end
     return C_Item.GetItemInfo(itemId) or ("Item #" .. itemId)
-end
-
--- Mirrors Auctionator's own Shopping-list click behavior: switch to Blizzard's native Buy tab
--- and run a live, exact-item search so the actual current listings for this item are shown.
-local function ShowUnderlyingAuction(entry)
-    if AuctionHouseFrame.Tabs and AuctionHouseFrame.Tabs[1] then
-        AuctionHouseFrame.Tabs[1]:Click()
-    end
-
-    local itemKey = C_AuctionHouse.MakeItemKey(entry.itemId)
-    local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
-    if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
-        Auctionator.AH.SendSearchQueryByItemKey(itemKey, sorts, true)
-    else
-        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
-    end
 end
 
 local function ShowRowTooltip(row)
@@ -68,26 +62,41 @@ local function ApplyRowAppearance(row, entry)
     row:SetAlpha(entry.confirmedGone and 0.4 or 1)
 end
 
--- The list's sort order and membership come from the last Auctionator scan, which can go stale
--- (listings sell, get cancelled, etc.). Rather than re-scan or re-sort, we correct just the
--- hovered row's numbers to the item's actual current cheapest listing - the AH only supports one
--- active browse search at a time, so only one of these is ever in flight.
-local pendingRow, pendingEntry, pendingItemKey
-
 -- C_AuctionHouse.GetBrowseResults()'s minPrice is an aggregate "cheapest price" that can reflect
 -- a bid-only auction's current bid when nothing has a buyout - not safe to treat as a buyout. The
--- per-listing item search results (below) separate buyoutAmount from bidAmount explicitly.
-local function FindCheapestBuyout(itemKey)
-    local cheapest
+-- per-listing item search results (below) separate buyoutAmount from bidAmount explicitly, and
+-- also let us exclude the player's own listings (can't buy your own auction).
+local function CollectBuyoutListings(itemKey)
+    local listings = {}
     for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
         local resultInfo = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
-        if resultInfo and resultInfo.buyoutAmount and resultInfo.buyoutAmount > 0 then
-            if (not cheapest) or resultInfo.buyoutAmount < cheapest then
-                cheapest = resultInfo.buyoutAmount
-            end
+        if resultInfo and resultInfo.buyoutAmount and resultInfo.buyoutAmount > 0
+            and not resultInfo.containsOwnerItem and not resultInfo.containsAccountItem then
+            table.insert(listings, {
+                auctionID = resultInfo.auctionID,
+                buyout = resultInfo.buyoutAmount,
+                quantity = resultInfo.quantity or 1,
+            })
         end
     end
-    return cheapest
+    table.sort(listings, function(a, b) return a.buyout < b.buyout end)
+    return listings
+end
+
+-- The AH only supports one active item search at a time, so both the hover-triggered price
+-- refresh and the buy sub-view share this single in-flight request; a newer request simply
+-- supersedes whatever was previously pending.
+local pendingItemKey, pendingOnReady
+
+local function RequestLiveSearch(itemId, onReady)
+    local itemKey = C_AuctionHouse.MakeItemKey(itemId)
+    pendingItemKey, pendingOnReady = itemKey, onReady
+    local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
+    if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
+        Auctionator.AH.SendSearchQueryByItemKey(itemKey, sorts, true)
+    else
+        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
+    end
 end
 
 local function RequestLiveBuyout(row)
@@ -96,42 +105,150 @@ local function RequestLiveBuyout(row)
         return
     end
 
-    pendingRow, pendingEntry = row, entry
-    pendingItemKey = C_AuctionHouse.MakeItemKey(entry.itemId)
-    local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
-    if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
-        Auctionator.AH.SendSearchQueryByItemKey(pendingItemKey, sorts, true)
-    else
-        C_AuctionHouse.SendSearchQuery(pendingItemKey, sorts, true)
+    RequestLiveSearch(entry.itemId, function(itemKey)
+        if row.entry ~= entry then
+            -- Row was rebound to a different item (list refreshed) while the query was in flight.
+            return
+        end
+
+        local listings = CollectBuyoutListings(itemKey)
+        -- No buyout listing found - either sold out or everything left is bid-only/owned by us;
+        -- either way it's not something we can point at a fixed buyout price for right now.
+        entry.confirmedGone = listings[1] == nil
+        if listings[1] then
+            entry.buyout = listings[1].buyout
+            entry.profit = entry.disenchantValue - entry.buyout
+        end
+        ApplyRowAppearance(row, entry)
+    end)
+end
+
+local function GetOrCreateBuyRow(index)
+    local row = buyRowPool[index]
+    if row then
+        return row
     end
+
+    row = CreateFrame("Frame", nil, buyScrollChild)
+    row:SetHeight(ROW_HEIGHT)
+    row:SetPoint("LEFT", buyScrollChild, "LEFT", 0, 0)
+    row:SetPoint("RIGHT", buyScrollChild, "RIGHT", 0, 0)
+    row:SetPoint("TOP", buyScrollChild, "TOP", 0, -(index - 1) * ROW_HEIGHT)
+
+    row.buyout = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    row.buyout:SetPoint("LEFT", row, "LEFT", 4, 0)
+    row.buyout:SetWidth(150)
+    row.buyout:SetJustifyH("LEFT")
+
+    row.quantity = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    row.quantity:SetPoint("LEFT", row.buyout, "RIGHT", 8, 0)
+    row.quantity:SetWidth(100)
+    row.quantity:SetJustifyH("LEFT")
+
+    row.buyButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.buyButton:SetSize(80, ROW_HEIGHT - 2)
+    row.buyButton:SetPoint("LEFT", row.quantity, "RIGHT", 8, 0)
+    row.buyButton:SetText("Buy")
+    row.buyButton:SetScript("OnClick", function(self)
+        local listing = self:GetParent().listing
+        if not listing then
+            return
+        end
+        StaticPopup_Show("ARBITRAGE_CONFIRM_BUYOUT", Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
+    end)
+
+    buyRowPool[index] = row
+    return row
+end
+
+local function RenderBuyListings(listings)
+    for i = 1, #listings do
+        local listing = listings[i]
+        local row = GetOrCreateBuyRow(i)
+        row.listing = listing
+        row.buyout:SetText(Arbitrage.FormatCoin(listing.buyout, 12))
+        row.quantity:SetText(tostring(listing.quantity))
+        row:Show()
+    end
+
+    for i = #listings + 1, #buyRowPool do
+        buyRowPool[i]:Hide()
+    end
+
+    buyScrollChild:SetHeight(math.max(#listings * ROW_HEIGHT, 1))
+    buyEmptyMessage:SetShown(#listings == 0)
+end
+
+local function RefreshBuyView()
+    if not currentBuyEntry then
+        return
+    end
+
+    local entry = currentBuyEntry
+    RequestLiveSearch(entry.itemId, function(itemKey)
+        if currentBuyEntry ~= entry then
+            -- User navigated back (or to a different item) before results arrived.
+            return
+        end
+        local listings = CollectBuyoutListings(itemKey)
+        if #listings == 0 then
+            buyEmptyMessage:SetText("No active listings for this item right now.")
+        end
+        RenderBuyListings(listings)
+    end)
+end
+
+local function ShowBuyView(entry)
+    currentBuyEntry = entry
+    buyViewIcon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
+    buyViewName:SetText(GetItemDisplayName(entry.itemId, entry.itemLink))
+    buyEmptyMessage:SetText("Loading current listings...")
+    RenderBuyListings({})
+
+    listView:Hide()
+    buyView:Show()
+
+    RefreshBuyView()
+end
+
+local function HideBuyView()
+    currentBuyEntry = nil
+    buyView:Hide()
+    listView:Show()
 end
 
 local liveQueryFrame = CreateFrame("Frame")
 liveQueryFrame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
-liveQueryFrame:SetScript("OnEvent", function(_, _, itemKey)
+liveQueryFrame:RegisterEvent("AUCTION_HOUSE_NEW_BID_RECEIVED")
+liveQueryFrame:SetScript("OnEvent", function(_, eventName, itemKey)
+    if eventName == "AUCTION_HOUSE_NEW_BID_RECEIVED" then
+        -- A purchase (ours or otherwise) landed; if the buy sub-view is open, refresh its listings.
+        RefreshBuyView()
+        return
+    end
+
     if not pendingItemKey or not itemKey or itemKey.itemID ~= pendingItemKey.itemID
         or not C_AuctionHouse.HasFullItemSearchResults(itemKey) then
         return
     end
 
-    local row, entry = pendingRow, pendingEntry
-    pendingRow, pendingEntry, pendingItemKey = nil, nil, nil
-
-    if row.entry ~= entry then
-        -- Row was rebound to a different item (list refreshed) while the query was in flight.
-        return
-    end
-
-    local liveBuyout = FindCheapestBuyout(itemKey)
-    -- No buyout listing found - either sold out or everything left is bid-only; either way it's
-    -- not something we can point at a fixed buyout price for, so treat it like a gone listing.
-    entry.confirmedGone = liveBuyout == nil
-    if liveBuyout then
-        entry.buyout = liveBuyout
-        entry.profit = entry.disenchantValue - entry.buyout
-    end
-    ApplyRowAppearance(row, entry)
+    local onReady = pendingOnReady
+    pendingItemKey, pendingOnReady = nil, nil
+    onReady(itemKey)
 end)
+
+StaticPopupDialogs["ARBITRAGE_CONFIRM_BUYOUT"] = {
+    text = "Buy this item for %s?",
+    button1 = "Buy",
+    button2 = "Cancel",
+    OnAccept = function(_, data)
+        C_AuctionHouse.PlaceBid(data.auctionID, data.buyout)
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
 
 local function GetOrCreateRow(index)
     local row = rowPool[index]
@@ -151,7 +268,9 @@ local function GetOrCreateRow(index)
     end)
     row:SetScript("OnLeave", GameTooltip_Hide)
     row:SetScript("OnClick", function(self)
-        ShowUnderlyingAuction(self.entry)
+        if self.entry then
+            ShowBuyView(self.entry)
+        end
     end)
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
@@ -210,18 +329,13 @@ end
 
 Arbitrage.OnProfitListUpdated = RefreshRows
 
-local function CreateContentFrame()
-    local frame = CreateFrame("Frame", "ArbitrageDisenchantingTabFrame", AuctionHouseFrame)
-    -- Same anchor offsets Auctionator's own AuctionatorTabFrameTemplate uses
-    -- (Source\Tabs\Frames\TabFrame.xml), without inheriting that private template.
-    frame:SetPoint("LEFT", AuctionHouseFrame, "LEFT", 4, 0)
-    frame:SetPoint("RIGHT", AuctionHouseFrame, "RIGHT", -4, 0)
-    frame:SetPoint("BOTTOM", AuctionHouseFrame, "BOTTOM", 0, 27)
-    frame:SetPoint("TOP", AuctionHouseFrame, "TOP", 0, -103)
+local function CreateListView(frame)
+    listView = CreateFrame("Frame", nil, frame)
+    listView:SetAllPoints(frame)
 
-    local header = CreateFrame("Frame", nil, frame)
-    header:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
-    header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+    local header = CreateFrame("Frame", nil, listView)
+    header:SetPoint("TOPLEFT", listView, "TOPLEFT", 4, -4)
+    header:SetPoint("TOPRIGHT", listView, "TOPRIGHT", -4, -4)
     header:SetHeight(ROW_HEIGHT)
 
     local headerItem = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -248,20 +362,83 @@ local function CreateContentFrame()
     headerProfit:SetJustifyH("LEFT")
     headerProfit:SetText("Profit")
 
-    local scrollFrame = CreateFrame("ScrollFrame", "ArbitrageDisenchantingScrollFrame", frame, "UIPanelScrollFrameTemplate")
+    local scrollFrame = CreateFrame("ScrollFrame", "ArbitrageDisenchantingScrollFrame", listView, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -26, 4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -26, 4)
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetWidth(CONTENT_WIDTH)
     scrollChild:SetHeight(1)
     scrollFrame:SetScrollChild(scrollChild)
 
-    emptyMessage = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
-    emptyMessage:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    emptyMessage = listView:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
+    emptyMessage:SetPoint("CENTER", listView, "CENTER", 0, 0)
     emptyMessage:SetText("Run a scan in Auctionator to populate this list.")
 
     RefreshRows()
+end
+
+local function CreateBuyView(frame)
+    buyView = CreateFrame("Frame", nil, frame)
+    buyView:SetAllPoints(frame)
+    buyView:Hide()
+
+    local backButton = CreateFrame("Button", nil, buyView, "UIPanelButtonTemplate")
+    backButton:SetSize(80, ROW_HEIGHT + 2)
+    backButton:SetPoint("TOPLEFT", buyView, "TOPLEFT", 4, -4)
+    backButton:SetText("< Back")
+    backButton:SetScript("OnClick", HideBuyView)
+
+    buyViewIcon = buyView:CreateTexture(nil, "ARTWORK")
+    buyViewIcon:SetSize(ROW_HEIGHT, ROW_HEIGHT)
+    buyViewIcon:SetPoint("LEFT", backButton, "RIGHT", 12, 0)
+
+    buyViewName = buyView:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    buyViewName:SetPoint("LEFT", buyViewIcon, "RIGHT", 6, 0)
+    buyViewName:SetJustifyH("LEFT")
+
+    local header = CreateFrame("Frame", nil, buyView)
+    header:SetPoint("TOPLEFT", backButton, "BOTTOMLEFT", 0, -8)
+    header:SetPoint("TOPRIGHT", buyView, "TOPRIGHT", -4, 0)
+    header:SetHeight(ROW_HEIGHT)
+
+    local headerBuyout = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    headerBuyout:SetPoint("LEFT", header, "LEFT", 4, 0)
+    headerBuyout:SetWidth(150)
+    headerBuyout:SetJustifyH("LEFT")
+    headerBuyout:SetText("Buyout")
+
+    local headerQuantity = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    headerQuantity:SetPoint("LEFT", headerBuyout, "RIGHT", 8, 0)
+    headerQuantity:SetWidth(100)
+    headerQuantity:SetJustifyH("LEFT")
+    headerQuantity:SetText("Quantity")
+
+    local scrollFrame = CreateFrame("ScrollFrame", "ArbitrageBuyItemScrollFrame", buyView, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+    scrollFrame:SetPoint("BOTTOMRIGHT", buyView, "BOTTOMRIGHT", -26, 4)
+
+    buyScrollChild = CreateFrame("Frame", nil, scrollFrame)
+    buyScrollChild:SetWidth(CONTENT_WIDTH)
+    buyScrollChild:SetHeight(1)
+    scrollFrame:SetScrollChild(buyScrollChild)
+
+    buyEmptyMessage = buyView:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
+    buyEmptyMessage:SetPoint("CENTER", buyView, "CENTER", 0, 0)
+    buyEmptyMessage:SetText("No active listings for this item right now.")
+end
+
+local function CreateContentFrame()
+    local frame = CreateFrame("Frame", "ArbitrageDisenchantingTabFrame", AuctionHouseFrame)
+    -- Same anchor offsets Auctionator's own AuctionatorTabFrameTemplate uses
+    -- (Source\Tabs\Frames\TabFrame.xml), without inheriting that private template.
+    frame:SetPoint("LEFT", AuctionHouseFrame, "LEFT", 4, 0)
+    frame:SetPoint("RIGHT", AuctionHouseFrame, "RIGHT", -4, 0)
+    frame:SetPoint("BOTTOM", AuctionHouseFrame, "BOTTOM", 0, 27)
+    frame:SetPoint("TOP", AuctionHouseFrame, "TOP", 0, -103)
+
+    CreateListView(frame)
+    CreateBuyView(frame)
 
     return frame
 end

@@ -14,6 +14,8 @@ globals = {
     "C_CurrencyInfo",
     "GameTooltip",
     "GameTooltip_Hide",
+    "StaticPopupDialogs",
+    "StaticPopup_Show",
     "GetCoinTextureString",
     "GetBuildInfo",
     "WOW_PROJECT_ID",
