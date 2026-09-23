@@ -4,11 +4,22 @@ local Arbitrage = select(2, ...)
 local TAB_ID = "Arbitrage-Disenchanting"
 local ROW_HEIGHT = 20
 local MAX_DISPLAYED_ROWS = 200 -- sane cap; a full scan filtered to disenchantable items shouldn't exceed this by much
--- Sum of the icon/column widths and gaps below (2+16+4+220+8+130+8+130+8+130). scrollChild needs
--- an explicit width matching this, or rows anchored LEFT+RIGHT to it collapse to ~0px wide and
--- silently stop receiving mouse events (OnEnter/OnClick), even though their text/icon still
--- render fine (children draw at their own offsets regardless of the parent's declared size).
-local CONTENT_WIDTH = 656
+
+-- The list pane sits fixed-width on the left so the buy sub-view can open beside it (rather than
+-- over it) on the right; its columns are narrower than a full-width list to make room.
+local ITEM_NAME_WIDTH = 140
+local VALUE_COL_WIDTH = 90
+local COLUMN_GAP = 6
+-- icon pad(2) + icon(ROW_HEIGHT-4) + gap(4) + name + gap + buyout + gap + DE value + gap + profit.
+-- scrollChild needs an explicit width matching this, or rows anchored LEFT+RIGHT to it collapse
+-- to ~0px wide and silently stop receiving mouse events (OnEnter/OnClick), even though their
+-- text/icon still render fine (children draw at their own offsets regardless of parent size).
+local LIST_CONTENT_WIDTH = 2 + (ROW_HEIGHT - 4) + 4 + ITEM_NAME_WIDTH + COLUMN_GAP
+    + VALUE_COL_WIDTH + COLUMN_GAP + VALUE_COL_WIDTH + COLUMN_GAP + VALUE_COL_WIDTH
+local LIST_PANE_WIDTH = LIST_CONTENT_WIDTH + 34 -- + scrollbar width and a little breathing room
+local PANE_GAP = 10 -- gap between the list pane and the buy sub-view
+
+local BUY_CONTENT_WIDTH = 150 + 8 + 100 + 8 + 80 -- buyout + gap + quantity + gap + Buy button
 
 ---@type table[] pooled row frames, reused and rebound as the list updates
 local rowPool = {}
@@ -205,7 +216,6 @@ local function ShowBuyView(entry)
     buyEmptyMessage:SetText("Loading current listings...")
     RenderBuyListings({})
 
-    listView:Hide()
     buyView:Show()
 
     RefreshBuyView()
@@ -214,7 +224,6 @@ end
 local function HideBuyView()
     currentBuyEntry = nil
     buyView:Hide()
-    listView:Show()
 end
 
 local liveQueryFrame = CreateFrame("Frame")
@@ -279,22 +288,22 @@ local function GetOrCreateRow(index)
 
     row.itemName = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.itemName:SetWidth(220)
+    row.itemName:SetWidth(ITEM_NAME_WIDTH)
     row.itemName:SetJustifyH("LEFT")
 
     row.buyout = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.buyout:SetPoint("LEFT", row.itemName, "RIGHT", 8, 0)
-    row.buyout:SetWidth(130)
+    row.buyout:SetPoint("LEFT", row.itemName, "RIGHT", COLUMN_GAP, 0)
+    row.buyout:SetWidth(VALUE_COL_WIDTH)
     row.buyout:SetJustifyH("LEFT")
 
     row.disenchantValue = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.disenchantValue:SetPoint("LEFT", row.buyout, "RIGHT", 8, 0)
-    row.disenchantValue:SetWidth(130)
+    row.disenchantValue:SetPoint("LEFT", row.buyout, "RIGHT", COLUMN_GAP, 0)
+    row.disenchantValue:SetWidth(VALUE_COL_WIDTH)
     row.disenchantValue:SetJustifyH("LEFT")
 
     row.profit = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    row.profit:SetPoint("LEFT", row.disenchantValue, "RIGHT", 8, 0)
-    row.profit:SetWidth(130)
+    row.profit:SetPoint("LEFT", row.disenchantValue, "RIGHT", COLUMN_GAP, 0)
+    row.profit:SetWidth(VALUE_COL_WIDTH)
     row.profit:SetJustifyH("LEFT")
 
     rowPool[index] = row
@@ -331,7 +340,9 @@ Arbitrage.OnProfitListUpdated = RefreshRows
 
 local function CreateListView(frame)
     listView = CreateFrame("Frame", nil, frame)
-    listView:SetAllPoints(frame)
+    listView:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    listView:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+    listView:SetWidth(LIST_PANE_WIDTH)
 
     local header = CreateFrame("Frame", nil, listView)
     header:SetPoint("TOPLEFT", listView, "TOPLEFT", 4, -4)
@@ -340,25 +351,25 @@ local function CreateListView(frame)
 
     local headerItem = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
     headerItem:SetPoint("LEFT", header, "LEFT", 22, 0)
-    headerItem:SetWidth(220)
+    headerItem:SetWidth(ITEM_NAME_WIDTH)
     headerItem:SetJustifyH("LEFT")
     headerItem:SetText("Item")
 
     local headerBuyout = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    headerBuyout:SetPoint("LEFT", headerItem, "RIGHT", 8, 0)
-    headerBuyout:SetWidth(130)
+    headerBuyout:SetPoint("LEFT", headerItem, "RIGHT", COLUMN_GAP, 0)
+    headerBuyout:SetWidth(VALUE_COL_WIDTH)
     headerBuyout:SetJustifyH("LEFT")
     headerBuyout:SetText("Buyout")
 
     local headerDisenchantValue = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    headerDisenchantValue:SetPoint("LEFT", headerBuyout, "RIGHT", 8, 0)
-    headerDisenchantValue:SetWidth(130)
+    headerDisenchantValue:SetPoint("LEFT", headerBuyout, "RIGHT", COLUMN_GAP, 0)
+    headerDisenchantValue:SetWidth(VALUE_COL_WIDTH)
     headerDisenchantValue:SetJustifyH("LEFT")
     headerDisenchantValue:SetText("DE Value")
 
     local headerProfit = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-    headerProfit:SetPoint("LEFT", headerDisenchantValue, "RIGHT", 8, 0)
-    headerProfit:SetWidth(130)
+    headerProfit:SetPoint("LEFT", headerDisenchantValue, "RIGHT", COLUMN_GAP, 0)
+    headerProfit:SetWidth(VALUE_COL_WIDTH)
     headerProfit:SetJustifyH("LEFT")
     headerProfit:SetText("Profit")
 
@@ -367,7 +378,7 @@ local function CreateListView(frame)
     scrollFrame:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -26, 4)
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(CONTENT_WIDTH)
+    scrollChild:SetWidth(LIST_CONTENT_WIDTH)
     scrollChild:SetHeight(1)
     scrollFrame:SetScrollChild(scrollChild)
 
@@ -380,25 +391,32 @@ end
 
 local function CreateBuyView(frame)
     buyView = CreateFrame("Frame", nil, frame)
-    buyView:SetAllPoints(frame)
+    buyView:SetPoint("TOPLEFT", listView, "TOPRIGHT", PANE_GAP, 0)
+    buyView:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     buyView:Hide()
 
-    local backButton = CreateFrame("Button", nil, buyView, "UIPanelButtonTemplate")
-    backButton:SetSize(80, ROW_HEIGHT + 2)
-    backButton:SetPoint("TOPLEFT", buyView, "TOPLEFT", 4, -4)
-    backButton:SetText("< Back")
-    backButton:SetScript("OnClick", HideBuyView)
+    local divider = frame:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(1, 1, 1, 0.15)
+    divider:SetWidth(1)
+    divider:SetPoint("TOP", listView, "TOPRIGHT", math.floor(PANE_GAP / 2), 0)
+    divider:SetPoint("BOTTOM", listView, "BOTTOMRIGHT", math.floor(PANE_GAP / 2), 0)
+
+    local closeButton = CreateFrame("Button", nil, buyView, "UIPanelButtonTemplate")
+    closeButton:SetSize(60, ROW_HEIGHT + 2)
+    closeButton:SetPoint("TOPRIGHT", buyView, "TOPRIGHT", -4, -4)
+    closeButton:SetText("Close")
+    closeButton:SetScript("OnClick", HideBuyView)
 
     buyViewIcon = buyView:CreateTexture(nil, "ARTWORK")
     buyViewIcon:SetSize(ROW_HEIGHT, ROW_HEIGHT)
-    buyViewIcon:SetPoint("LEFT", backButton, "RIGHT", 12, 0)
+    buyViewIcon:SetPoint("TOPLEFT", buyView, "TOPLEFT", 4, -4)
 
     buyViewName = buyView:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     buyViewName:SetPoint("LEFT", buyViewIcon, "RIGHT", 6, 0)
     buyViewName:SetJustifyH("LEFT")
 
     local header = CreateFrame("Frame", nil, buyView)
-    header:SetPoint("TOPLEFT", backButton, "BOTTOMLEFT", 0, -8)
+    header:SetPoint("TOPLEFT", buyViewIcon, "BOTTOMLEFT", 0, -8)
     header:SetPoint("TOPRIGHT", buyView, "TOPRIGHT", -4, 0)
     header:SetHeight(ROW_HEIGHT)
 
@@ -419,7 +437,7 @@ local function CreateBuyView(frame)
     scrollFrame:SetPoint("BOTTOMRIGHT", buyView, "BOTTOMRIGHT", -26, 4)
 
     buyScrollChild = CreateFrame("Frame", nil, scrollFrame)
-    buyScrollChild:SetWidth(CONTENT_WIDTH)
+    buyScrollChild:SetWidth(BUY_CONTENT_WIDTH)
     buyScrollChild:SetHeight(1)
     scrollFrame:SetScrollChild(buyScrollChild)
 
