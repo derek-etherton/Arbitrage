@@ -3,7 +3,6 @@ local Arbitrage = select(2, ...)
 
 local TAB_ID = "Arbitrage-Disenchanting"
 local ROW_HEIGHT = 20
-local MAX_DISPLAYED_ROWS = 200 -- sane cap; a full scan filtered to disenchantable items shouldn't exceed this by much
 
 -- The list pane sits fixed-width on the left so the buy sub-view can open beside it (rather than
 -- over it) on the right; its columns are narrower than a full-width list to make room.
@@ -102,11 +101,16 @@ local function CollectBuyoutListings(itemKey)
     return listings
 end
 
--- The AH only supports one active item search at a time, so both the hover-triggered price
--- refresh and the buy sub-view share this single in-flight request; a newer request simply
--- supersedes whatever was previously pending.
-local pendingItemKey, pendingOnReady
+-- The AH only supports one active item search at a time. Earlier this shared a single
+-- overwrite-on-request slot between the hover-triggered refresh and the buy sub-view - but with
+-- both visible side by side, hovering a list row while the buy pane's search was in flight would
+-- silently steal that slot, and NOTHING would ever call the buy pane's callback again (not
+-- success, not timeout) - a permanent hang, not a performance issue. A real FIFO queue instead:
+-- every request eventually gets its turn and is guaranteed to resolve or time out.
+local searchQueue = {}
+local activeSearch -- {itemKey, onReady, onTimeout}
 local currentPollTicker
+local StartNextSearch
 
 -- Mirrors Auctionator's own AuctionatorAHSearchScanFrameMixin: for a popular item, results
 -- stream in over several batches and HasFullItemSearchResults can take a while (sometimes
@@ -121,45 +125,42 @@ local function IsItemSearchReady(itemKey)
         or C_AuctionHouse.GetItemSearchResultsQuantity(itemKey) > 0
 end
 
-local function TryResolvePending()
-    if not pendingItemKey or not IsItemSearchReady(pendingItemKey) then
+local function TryResolveActive()
+    if not activeSearch or not IsItemSearchReady(activeSearch.itemKey) then
         return false
     end
 
-    local itemKey, onReady = pendingItemKey, pendingOnReady
-    pendingItemKey, pendingOnReady = nil, nil
+    local search = activeSearch
+    activeSearch = nil
     if currentPollTicker then
         currentPollTicker:Cancel()
         currentPollTicker = nil
     end
 
-    onReady(itemKey)
+    search.onReady(search.itemKey)
+    StartNextSearch()
     return true
 end
 
----@param onTimeout function|nil called if results never arrive within a few seconds
-local function RequestLiveSearch(itemId, onReady, onTimeout)
-    if currentPollTicker then
-        currentPollTicker:Cancel()
-        currentPollTicker = nil
+StartNextSearch = function()
+    if activeSearch or #searchQueue == 0 then
+        return
     end
-
-    local itemKey = C_AuctionHouse.MakeItemKey(itemId)
-    pendingItemKey, pendingOnReady = itemKey, onReady
+    activeSearch = table.remove(searchQueue, 1)
 
     local sorts = {{sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false}}
     if Auctionator.AH and Auctionator.AH.SendSearchQueryByItemKey then
-        Auctionator.AH.SendSearchQueryByItemKey(itemKey, sorts, true)
+        Auctionator.AH.SendSearchQueryByItemKey(activeSearch.itemKey, sorts, true)
     else
-        C_AuctionHouse.SendSearchQuery(itemKey, sorts, true)
+        C_AuctionHouse.SendSearchQuery(activeSearch.itemKey, sorts, true)
     end
 
     -- Blizzard doesn't always re-fire ITEM_SEARCH_RESULTS_UPDATED when a search's results are
     -- already fully cached (e.g. this exact item was searched moments ago via hover) - without
-    -- this poll, that leaves a pending request waiting forever for an event that never comes.
+    -- this poll, that leaves a request waiting forever for an event that never comes.
     local attempts = 0
     currentPollTicker = C_Timer.NewTicker(0.2, function(ticker)
-        if TryResolvePending() then
+        if TryResolveActive() then
             return
         end
 
@@ -167,36 +168,90 @@ local function RequestLiveSearch(itemId, onReady, onTimeout)
         if attempts >= 15 then
             ticker:Cancel()
             currentPollTicker = nil
-            pendingItemKey, pendingOnReady = nil, nil
-            if onTimeout then
-                onTimeout()
+            local timedOut = activeSearch
+            activeSearch = nil
+            if timedOut.onTimeout then
+                timedOut.onTimeout()
             end
+            StartNextSearch()
         end
     end)
 end
 
-local function RequestLiveBuyout(row)
+---@param onTimeout function|nil called if results never arrive within a few seconds
+local function RequestLiveSearch(itemId, onReady, onTimeout)
+    local itemKey = C_AuctionHouse.MakeItemKey(itemId)
+    table.insert(searchQueue, {itemKey = itemKey, onReady = onReady, onTimeout = onTimeout})
+    StartNextSearch()
+end
+
+---@param onDone function|nil called once, whether the refresh succeeded, was skipped, or timed out
+local function RequestLiveBuyout(row, onDone)
     local entry = row.entry
     if not entry then
+        if onDone then onDone() end
         return
     end
 
-    RequestLiveSearch(entry.itemId, function(itemKey)
-        if row.entry ~= entry then
-            -- Row was rebound to a different item (list refreshed) while the query was in flight.
-            return
-        end
+    local function Finish()
+        if onDone then onDone() end
+    end
 
-        local listings = CollectBuyoutListings(itemKey)
-        -- No buyout listing found - either sold out or everything left is bid-only/owned by us;
-        -- either way it's not something we can point at a fixed buyout price for right now.
-        entry.confirmedGone = listings[1] == nil
-        if listings[1] then
-            entry.buyout = listings[1].buyout
-            entry.profit = entry.disenchantValue - entry.buyout
+    RequestLiveSearch(entry.itemId, function(itemKey)
+        if row.entry == entry then
+            local listings = CollectBuyoutListings(itemKey)
+            -- No buyout listing found - either sold out or everything left is bid-only/owned by
+            -- us; either way it's not something we can point at a fixed buyout price for now.
+            entry.confirmedGone = listings[1] == nil
+            if listings[1] then
+                entry.buyout = listings[1].buyout
+                entry.profit = entry.disenchantValue - entry.buyout
+            end
+            ApplyRowAppearance(row, entry)
         end
-        ApplyRowAppearance(row, entry)
-    end)
+        -- else: row was rebound to a different item (list refreshed) while the query was in flight.
+        Finish()
+    end, Finish)
+end
+
+-- While the bulk reload below is running, all row live-lookups share the single active-search
+-- slot in sequence; a hover-triggered lookup jumping the queue would strand whichever row's
+-- request it displaced (nothing would ever call that row's completion callback again).
+local bulkRefreshInProgress = false
+local reloadButton
+
+local function RefreshDisplayedBuyouts()
+    if bulkRefreshInProgress then
+        return
+    end
+
+    local rows = {}
+    for i = 1, #rowPool do
+        if rowPool[i]:IsShown() and rowPool[i].entry then
+            table.insert(rows, rowPool[i])
+        end
+    end
+    if #rows == 0 then
+        return
+    end
+
+    bulkRefreshInProgress = true
+    reloadButton:SetText("Reloading...")
+    reloadButton:Disable()
+
+    local index = 0
+    local function Next()
+        index = index + 1
+        local row = rows[index]
+        if row then
+            RequestLiveBuyout(row, Next)
+        else
+            bulkRefreshInProgress = false
+            reloadButton:SetText("Reload")
+            reloadButton:Enable()
+        end
+    end
+    Next()
 end
 
 local function ConfirmBuyListing(listing)
@@ -351,7 +406,7 @@ liveQueryFrame:SetScript("OnEvent", function(_, eventName)
         -- A purchase (ours or otherwise) landed; if the buy sub-view is open, refresh its listings.
         RefreshBuyView()
     else
-        TryResolvePending()
+        TryResolveActive()
     end
 end)
 
@@ -383,7 +438,9 @@ local function GetOrCreateRow(index)
     row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
     row:SetScript("OnEnter", function(self)
         ShowRowTooltip(self)
-        RequestLiveBuyout(self)
+        if not bulkRefreshInProgress then
+            RequestLiveBuyout(self)
+        end
     end)
     row:SetScript("OnLeave", GameTooltip_Hide)
     row:SetScript("OnClick", function(self)
@@ -431,7 +488,7 @@ end
 
 local function RefreshRows()
     local profitList = Arbitrage.ProfitList or {}
-    local totalItems = math.min(#profitList, MAX_DISPLAYED_ROWS)
+    local totalItems = #profitList
     local totalPages = math.max(1, math.ceil(totalItems / PAGE_SIZE))
     currentPage = math.min(math.max(currentPage, 1), totalPages)
 
@@ -497,9 +554,15 @@ local function CreateListView(frame)
     footer:SetPoint("BOTTOMRIGHT", listView, "BOTTOMRIGHT", -4, 4)
     footer:SetHeight(ROW_HEIGHT + 4)
 
+    reloadButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    reloadButton:SetSize(56, ROW_HEIGHT + 2)
+    reloadButton:SetPoint("LEFT", footer, "LEFT", 0, 0)
+    reloadButton:SetText("Reload")
+    reloadButton:SetScript("OnClick", RefreshDisplayedBuyouts)
+
     prevPageButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
-    prevPageButton:SetSize(60, ROW_HEIGHT + 2)
-    prevPageButton:SetPoint("LEFT", footer, "LEFT", 0, 0)
+    prevPageButton:SetSize(50, ROW_HEIGHT + 2)
+    prevPageButton:SetPoint("LEFT", reloadButton, "RIGHT", 4, 0)
     prevPageButton:SetText("< Prev")
     prevPageButton:SetScript("OnClick", function()
         currentPage = currentPage - 1
