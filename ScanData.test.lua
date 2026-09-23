@@ -1,4 +1,4 @@
-describe("ParseScanData", function()
+describe("ParseReplicateScanData", function()
     ---@type Arbitrage
     local Arbitrage
 
@@ -17,7 +17,7 @@ describe("ParseScanData", function()
     end
 
     it("should return an empty list for empty scan data", function()
-        local listings = Arbitrage.ParseScanData({})
+        local listings = Arbitrage.ParseReplicateScanData({})
 
         assert.are_same({}, listings)
     end)
@@ -27,7 +27,7 @@ describe("ParseScanData", function()
             {replicateInfo = replicateInfo(2, 200, 10940), itemLink = "itemLinkA"},
         }
 
-        local listings = Arbitrage.ParseScanData(scanData)
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({
             {itemId = 10940, itemLink = "itemLinkA", quantity = 2, buyout = 100},
@@ -39,7 +39,7 @@ describe("ParseScanData", function()
             {replicateInfo = replicateInfo(0, 200, 10940), itemLink = "itemLinkA"},
         }
 
-        local listings = Arbitrage.ParseScanData(scanData)
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({}, listings)
     end)
@@ -49,7 +49,7 @@ describe("ParseScanData", function()
             {replicateInfo = replicateInfo(1, 0, 10940), itemLink = "itemLinkA"},
         }
 
-        local listings = Arbitrage.ParseScanData(scanData)
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({}, listings)
     end)
@@ -59,7 +59,7 @@ describe("ParseScanData", function()
             {replicateInfo = replicateInfo(1, 100, nil), itemLink = "itemLinkA"},
         }
 
-        local listings = Arbitrage.ParseScanData(scanData)
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({}, listings)
     end)
@@ -71,11 +71,69 @@ describe("ParseScanData", function()
             {replicateInfo = replicateInfo(3, 300, 333), itemLink = "linkC"},
         }
 
-        local listings = Arbitrage.ParseScanData(scanData)
+        local listings = Arbitrage.ParseReplicateScanData(scanData)
 
         assert.are_same({
             {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100},
             {itemId = 333, itemLink = "linkC", quantity = 3, buyout = 100},
         }, listings)
+    end)
+end)
+
+describe("ParseBrowseScanData", function()
+    ---@type Arbitrage
+    local Arbitrage
+
+    before_each(function()
+        Arbitrage = {}
+        loadfile("ScanData.lua")("Arbitrage", Arbitrage)
+    end)
+
+    local function browseResult(itemId, minPrice, totalQuantity)
+        return {
+            itemKey = {itemID = itemId},
+            minPrice = minPrice,
+            totalQuantity = totalQuantity,
+        }
+    end
+
+    it("should return an empty list for an empty scan", function()
+        local listings = Arbitrage.ParseBrowseScanData({})
+
+        assert.are_same({}, listings)
+    end)
+
+    it("should extract itemId, quantity, and min price, with a nil itemLink", function()
+        local rawScan = {browseResult(10940, 100, 5)}
+
+        local listings = Arbitrage.ParseBrowseScanData(rawScan)
+
+        assert.are_same({
+            {itemId = 10940, itemLink = nil, quantity = 5, buyout = 100},
+        }, listings)
+    end)
+
+    it("should skip results with zero quantity", function()
+        local rawScan = {browseResult(10940, 100, 0)}
+
+        local listings = Arbitrage.ParseBrowseScanData(rawScan)
+
+        assert.are_same({}, listings)
+    end)
+
+    it("should skip results with zero or nil min price", function()
+        local rawScan = {browseResult(10940, 0, 5), browseResult(10941, nil, 5)}
+
+        local listings = Arbitrage.ParseBrowseScanData(rawScan)
+
+        assert.are_same({}, listings)
+    end)
+
+    it("should skip results with no itemKey", function()
+        local rawScan = {{minPrice = 100, totalQuantity = 5}}
+
+        local listings = Arbitrage.ParseBrowseScanData(rawScan)
+
+        assert.are_same({}, listings)
     end)
 end)

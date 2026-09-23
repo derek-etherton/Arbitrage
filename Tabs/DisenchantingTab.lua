@@ -10,9 +10,16 @@ local rowPool = {}
 local scrollChild
 local emptyMessage
 
-local function GetItemDisplayName(itemLink)
-    local name = itemLink:match("%[(.-)%]")
-    return name or itemLink
+-- Browse-scan results (see ScanData.lua) have no itemLink, only an itemId; fall back to
+-- C_Item.GetItemInfo, which accepts a bare itemId and works even without a link.
+local function GetItemDisplayName(itemId, itemLink)
+    if itemLink then
+        local name = itemLink:match("%[(.-)%]")
+        if name then
+            return name
+        end
+    end
+    return C_Item.GetItemInfo(itemId) or ("Item #" .. itemId)
 end
 
 local function GetOrCreateRow(index)
@@ -57,7 +64,7 @@ end
 
 local function SetRowData(row, entry)
     row.icon:SetTexture(C_Item.GetItemIconByID(entry.itemId))
-    row.itemName:SetText(GetItemDisplayName(entry.itemLink))
+    row.itemName:SetText(GetItemDisplayName(entry.itemId, entry.itemLink))
     row.buyout:SetText(Arbitrage.FormatCoin(entry.buyout, 12))
     row.disenchantValue:SetText(Arbitrage.FormatCoin(entry.disenchantValue, 12))
     row.profit:SetText((entry.profit >= 0 and "|cff1eff00" or "|cffff0000") .. Arbitrage.FormatCoin(entry.profit, 12) .. "|r")
@@ -132,7 +139,7 @@ local function CreateContentFrame()
 
     emptyMessage = frame:CreateFontString(nil, "ARTWORK", "GameFontDisableLarge")
     emptyMessage:SetPoint("CENTER", frame, "CENTER", 0, 0)
-    emptyMessage:SetText("Run a full \"Get All\" scan in Auctionator to populate this list.")
+    emptyMessage:SetText("Run a scan in Auctionator to populate this list.")
 
     RefreshRows()
 
