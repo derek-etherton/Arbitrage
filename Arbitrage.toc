@@ -10,6 +10,8 @@ Libs\LibStub\LibStub.lua
 Libs\LibAHTab\LibAHTab.xml
 GameVersions.lua
 Arbitrage.lua
+Settings.lua
+SlashCommands.lua
 FormatCoin.lua
 ScanData.lua
 ProfitList.lua
@@ -20,5 +22,6 @@ Tabs\Shared\ItemDisplay.lua
 Tabs\Shared\LiveSearchQueue.lua
 Tabs\Shared\ListPane.lua
 Tabs\Shared\BuyPane.lua
+Tabs\Shared\TabController.lua
 Tabs\Disenchanting.lua
 Tabs\Vendoring.lua

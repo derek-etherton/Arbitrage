@@ -59,9 +59,15 @@ The two tabs share almost all of their UI, under `Tabs/Shared/`:
 - **`ListPane.lua`** — `AH.NewListPane(config)`, a factory: give it a profit-list key, a "value" column label, and a row-click handler, and it builds a paginated (20/page), profit-sorted list with hover-triggered live buyout correction and a "Reload" button. Each tab creates its own instance.
 - **`BuyPane.lua`** — `AH.NewBuyPane()`, a factory for the side pane opened by clicking a list row: shows that item's real current buyout listings (cheapest 20, with a "+N more" note) and handles the purchase confirm/`PlaceBid` flow. Each instance gets its own `StaticPopupDialogs` key since that table is global.
 
-`Tabs/Disenchanting.lua` and `Tabs/Vendoring.lua` are each just: register a profit strategy, instantiate a list pane + buy pane with the right labels, wire them into one content frame, and hook the AH-open event. Neither contains any list/buy rendering logic itself.
+- **`TabController.lua`** — `AH.RegisterTab(config)`: given a tab id, title, settings key, and content-frame factory, handles creating the tab lazily on AH-open and applying its current show/hide setting. This is the only place the `PLAYER_INTERACTION_MANAGER_FRAME_SHOW` hook lives.
+
+`Tabs/Disenchanting.lua` and `Tabs/Vendoring.lua` are each just: register a profit strategy, instantiate a list pane + buy pane with the right labels, and call `AH.RegisterTab`. Neither contains any list/buy rendering logic, or its own AH-open hook.
 
 Item icon/name come from the item link (`%[(.-)%]` pattern match) when one's available (replicate scans), falling back to `C_Item.GetItemInfo`/the AH's suffix-aware display text otherwise (browse scans have no link — see `ItemDisplay.lua`).
+
+## Settings
+
+`Settings.lua` stores per-tab show/hide flags in `Arbitrage_Profile.Settings` (`ShowDisenchanting`, `ShowVendoring`, both default `true`). `/arbitrage disenchanting|vendoring [on|off]` (`SlashCommands.lua`) toggles them live — no `/reload` needed, since `TabController.lua` just hides/shows the existing tab button via `LibAHTab:GetButton(tabId):SetShown(...)` rather than creating/destroying the tab. Running `/arbitrage` with no arguments prints current status. No graphical options panel yet; this was intentionally kept to the simplest thing that works, following DisenchantBuddy's own slash-command-only precedent.
 
 ## Known gaps
 
@@ -76,7 +82,7 @@ Currently the `.toc` only declares `## Interface: 16001` (Forever's specific ran
 
 ## Development
 
-Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`) is tested; UI code (`Tabs/*.lua`, `Tabs/Shared/*.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
+Follows DisenchantBuddy's established conventions (`busted`, `.test.lua` naming, TDD, `luacheck`) for consistency — see `DisenchantBuddy/AGENTS.md`. Pure logic (`ScanData.lua`, `ProfitList.lua`, `Settings.lua`) is tested; UI/command code (`Tabs/*.lua`, `Tabs/Shared/*.lua`, `SlashCommands.lua`) isn't, matching how DisenchantBuddy itself only tests logic, not frame/rendering code.
 
 ```powershell
 $env:PATH += ";$env:APPDATA\luarocks\bin"   # one-time per shell if not already permanent
