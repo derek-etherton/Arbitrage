@@ -185,6 +185,32 @@ local function ConfirmBuyListing(listing)
     StaticPopup_Show("ARBITRAGE_CONFIRM_BUYOUT", Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
 end
 
+local function ApplyBuyRowAppearance(row)
+    local purchased = row.listing and row.listing.purchased
+    row:SetAlpha(purchased and 0.4 or 1)
+    if purchased then
+        row:Disable()
+        row.buyButton:Disable()
+    else
+        row:Enable()
+        row.buyButton:Enable()
+    end
+end
+
+-- The AUCTION_HOUSE_NEW_BID_RECEIVED refresh (which drops sold-out listings entirely) can take a
+-- moment to arrive from the server; grey the row out immediately on confirm so it's clear the
+-- purchase went through and the row can't be bought again while that refresh is in flight.
+local function MarkListingPurchased(listing)
+    listing.purchased = true
+    for i = 1, #buyRowPool do
+        local row = buyRowPool[i]
+        if row.listing == listing then
+            ApplyBuyRowAppearance(row)
+            break
+        end
+    end
+end
+
 local function GetOrCreateBuyRow(index)
     local row = buyRowPool[index]
     if row then
@@ -230,6 +256,7 @@ local function RenderBuyListings(listings)
         row.listing = listing
         row.buyout:SetText(Arbitrage.FormatCoin(listing.buyout, 12))
         row.quantity:SetText(tostring(listing.quantity))
+        ApplyBuyRowAppearance(row)
         row:Show()
     end
 
@@ -301,6 +328,7 @@ StaticPopupDialogs["ARBITRAGE_CONFIRM_BUYOUT"] = {
     button2 = "Cancel",
     OnAccept = function(_, data)
         C_AuctionHouse.PlaceBid(data.auctionID, data.buyout)
+        MarkListingPurchased(data)
     end,
     timeout = 0,
     whileDead = true,
