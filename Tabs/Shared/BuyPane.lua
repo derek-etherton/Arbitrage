@@ -115,11 +115,13 @@ function AH.NewBuyPane()
             local listing = listings[i]
             local row = GetOrCreateBuyRow(i)
             row.listing = listing
-            row.buyout:SetText(Arbitrage.FormatCoin(listing.buyout, 12))
+            -- Commodity buyouts are a PER-UNIT price bought in bulk, unlike item auctions where
+            -- the buyout already covers the whole lot - make that unmistakable before they click.
+            row.buyout:SetText(Arbitrage.FormatCoin(listing.buyout, 12) .. (listing.isCommodity and " ea" or ""))
             local isLoss = listing.profitPercent < 0
             row.profitPercent:SetText((isLoss and "|cffff0000" or "|cff1eff00")
                 .. string.format("%.0f%%", listing.profitPercent) .. "|r")
-            row.quantity:SetText(tostring(listing.quantity))
+            row.quantity:SetText(listing.isCommodity and ("x" .. listing.quantity) or tostring(listing.quantity))
             ApplyBuyRowAppearance(row)
             row:Show()
         end
