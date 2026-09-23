@@ -5,6 +5,7 @@ local AH = Arbitrage.AH
 local ROW_HEIGHT = AH.ROW_HEIGHT
 local ITEM_NAME_WIDTH = AH.ITEM_NAME_WIDTH
 local VALUE_COL_WIDTH = AH.VALUE_COL_WIDTH
+local PERCENT_COL_WIDTH = AH.PERCENT_COL_WIDTH
 local COLUMN_GAP = AH.COLUMN_GAP
 local LIST_CONTENT_WIDTH = AH.LIST_CONTENT_WIDTH
 local LIST_PANE_WIDTH = AH.LIST_PANE_WIDTH
@@ -42,8 +43,12 @@ function AH.NewListPane(config)
         -- FormatCoin (GetCoinTextureString) errors on a negative amount, so a loss needs its
         -- own "-" prefix with the absolute value passed through instead.
         local isLoss = entry.profit < 0
+        local color = isLoss and "|cffff0000" or "|cff1eff00"
         local profitText = (isLoss and "-" or "") .. Arbitrage.FormatCoin(math.abs(entry.profit), 12)
-        row.profit:SetText((isLoss and "|cffff0000" or "|cff1eff00") .. profitText .. "|r")
+        row.profit:SetText(color .. profitText .. "|r")
+
+        local percent = entry.buyout > 0 and (entry.profit / entry.buyout * 100) or 0
+        row.profitPercent:SetText(color .. string.format("%.0f%%", percent) .. "|r")
     end
 
     local function ApplyRowAppearance(row, entry)
@@ -164,6 +169,12 @@ function AH.NewListPane(config)
         row.profit:SetJustifyH("LEFT")
         row.profit:SetJustifyV("MIDDLE")
 
+        row.profitPercent = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        row.profitPercent:SetPoint("LEFT", row.profit, "RIGHT", COLUMN_GAP, 0)
+        row.profitPercent:SetWidth(PERCENT_COL_WIDTH)
+        row.profitPercent:SetJustifyH("LEFT")
+        row.profitPercent:SetJustifyV("MIDDLE")
+
         rowPool[index] = row
         return row
     end
@@ -239,6 +250,12 @@ function AH.NewListPane(config)
         headerProfit:SetWidth(VALUE_COL_WIDTH)
         headerProfit:SetJustifyH("LEFT")
         headerProfit:SetText("Profit")
+
+        local headerPercent = header:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        headerPercent:SetPoint("LEFT", headerProfit, "RIGHT", COLUMN_GAP, 0)
+        headerPercent:SetWidth(PERCENT_COL_WIDTH)
+        headerPercent:SetJustifyH("LEFT")
+        headerPercent:SetText("%")
 
         local footer = CreateFrame("Frame", nil, listView)
         footer:SetPoint("BOTTOMLEFT", listView, "BOTTOMLEFT", 4, 4)
