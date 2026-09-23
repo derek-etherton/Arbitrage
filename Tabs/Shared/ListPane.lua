@@ -136,35 +136,33 @@ function AH.NewListPane(config)
             end
         end)
 
-        -- Top-anchored (not vertically centered) so a wrapped 2-line item name doesn't push its
-        -- first line above the icon and overlap the row below.
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(ROW_HEIGHT - 4, ROW_HEIGHT - 4)
-        row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", 2, 0)
+        row.icon:SetPoint("LEFT", row, "LEFT", 2, 0)
 
         row.itemName = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        row.itemName:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 4, 0)
+        row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
         row.itemName:SetWidth(ITEM_NAME_WIDTH)
         row.itemName:SetJustifyH("LEFT")
-        row.itemName:SetJustifyV("TOP")
+        row.itemName:SetJustifyV("MIDDLE")
 
         row.buyout = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        row.buyout:SetPoint("TOPLEFT", row.itemName, "TOPRIGHT", COLUMN_GAP, 0)
+        row.buyout:SetPoint("LEFT", row.itemName, "RIGHT", COLUMN_GAP, 0)
         row.buyout:SetWidth(VALUE_COL_WIDTH)
         row.buyout:SetJustifyH("LEFT")
-        row.buyout:SetJustifyV("TOP")
+        row.buyout:SetJustifyV("MIDDLE")
 
         row.value = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        row.value:SetPoint("TOPLEFT", row.buyout, "TOPRIGHT", COLUMN_GAP, 0)
+        row.value:SetPoint("LEFT", row.buyout, "RIGHT", COLUMN_GAP, 0)
         row.value:SetWidth(VALUE_COL_WIDTH)
         row.value:SetJustifyH("LEFT")
-        row.value:SetJustifyV("TOP")
+        row.value:SetJustifyV("MIDDLE")
 
         row.profit = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-        row.profit:SetPoint("TOPLEFT", row.value, "TOPRIGHT", COLUMN_GAP, 0)
+        row.profit:SetPoint("LEFT", row.value, "RIGHT", COLUMN_GAP, 0)
         row.profit:SetWidth(VALUE_COL_WIDTH)
         row.profit:SetJustifyH("LEFT")
-        row.profit:SetJustifyV("TOP")
+        row.profit:SetJustifyV("MIDDLE")
 
         rowPool[index] = row
         return row
