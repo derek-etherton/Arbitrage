@@ -3,21 +3,49 @@ local Arbitrage = select(2, ...)
 
 local AH = Arbitrage.AH
 
+-- Stackable/fungible items (ore, herbs, cloth, gems, etc.) are "commodities" on the modern AH,
+-- queried and purchased via a completely separate API from regular items (GetNumItemSearchResults
+-- etc. silently return nothing for them). Same detection Auctionator's own Shopping results row
+-- uses: C_AuctionHouse.GetItemKeyInfo(itemKey).isCommodity.
+function AH.IsCommodityItemKey(itemKey)
+    local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
+    return info ~= nil and info.isCommodity
+end
+
 -- GetBrowseResults()'s minPrice can be a bid-only auction's current bid, not a real buyout;
 -- per-listing results (below) separate buyoutAmount from bidAmount and let us skip own listings.
+-- Commodity results have no such "buyout vs bid" distinction (no bidding on commodities) and no
+-- per-auction ID - a listing here is a price tier, bought via itemID + quantity, not an auctionID.
 function AH.CollectBuyoutListings(itemKey)
     local listings = {}
-    for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
-        local resultInfo = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
-        if resultInfo and resultInfo.buyoutAmount and resultInfo.buyoutAmount > 0
-            and not resultInfo.containsOwnerItem and not resultInfo.containsAccountItem then
-            table.insert(listings, {
-                auctionID = resultInfo.auctionID,
-                buyout = resultInfo.buyoutAmount,
-                quantity = resultInfo.quantity or 1,
-            })
+
+    if AH.IsCommodityItemKey(itemKey) then
+        for i = 1, C_AuctionHouse.GetNumCommoditySearchResults(itemKey.itemID) do
+            local resultInfo = C_AuctionHouse.GetCommoditySearchResultInfo(itemKey.itemID, i)
+            if resultInfo and resultInfo.unitPrice and resultInfo.unitPrice > 0 then
+                table.insert(listings, {
+                    itemId = itemKey.itemID,
+                    isCommodity = true,
+                    buyout = resultInfo.unitPrice,
+                    quantity = resultInfo.quantity or 1,
+                })
+            end
+        end
+    else
+        for i = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
+            local resultInfo = C_AuctionHouse.GetItemSearchResultInfo(itemKey, i)
+            if resultInfo and resultInfo.buyoutAmount and resultInfo.buyoutAmount > 0
+                and not resultInfo.containsOwnerItem and not resultInfo.containsAccountItem then
+                table.insert(listings, {
+                    isCommodity = false,
+                    auctionID = resultInfo.auctionID,
+                    buyout = resultInfo.buyoutAmount,
+                    quantity = resultInfo.quantity or 1,
+                })
+            end
         end
     end
+
     table.sort(listings, function(a, b) return a.buyout < b.buyout end)
     return listings
 end
@@ -30,9 +58,13 @@ local activeSearch -- {itemKey, onReady, onTimeout}
 local currentPollTicker
 local StartNextSearch
 
--- HasFullItemSearchResults can take a while for a popular item; accept the first non-empty
--- batch instead (like Auctionator does) since we sort ascending by price anyway.
-local function IsItemSearchReady(itemKey)
+-- HasFull*SearchResults can take a while for a popular item; accept the first non-empty batch
+-- instead (like Auctionator does) since we sort ascending by price anyway.
+local function IsSearchReady(itemKey)
+    if AH.IsCommodityItemKey(itemKey) then
+        return C_AuctionHouse.HasFullCommoditySearchResults(itemKey.itemID)
+            or C_AuctionHouse.GetCommoditySearchResultsQuantity(itemKey.itemID) > 0
+    end
     if not C_AuctionHouse.HasSearchResults(itemKey) then
         return false
     end
@@ -41,7 +73,7 @@ local function IsItemSearchReady(itemKey)
 end
 
 local function TryResolveActive()
-    if not activeSearch or not IsItemSearchReady(activeSearch.itemKey) then
+    if not activeSearch or not IsSearchReady(activeSearch.itemKey) then
         return false
     end
 
@@ -104,6 +136,7 @@ AH.BidReceivedListeners = {}
 
 local liveQueryFrame = CreateFrame("Frame")
 liveQueryFrame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
+liveQueryFrame:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED")
 liveQueryFrame:RegisterEvent("AUCTION_HOUSE_NEW_BID_RECEIVED")
 liveQueryFrame:SetScript("OnEvent", function(_, eventName)
     if eventName == "AUCTION_HOUSE_NEW_BID_RECEIVED" then

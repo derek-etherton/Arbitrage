@@ -20,12 +20,24 @@ function AH.NewBuyPane()
 
     dialogCounter = dialogCounter + 1
     local CONFIRM_DIALOG_KEY = "ARBITRAGE_CONFIRM_BUYOUT_" .. dialogCounter
+    local CONFIRM_COMMODITY_DIALOG_KEY = "ARBITRAGE_CONFIRM_COMMODITY_" .. dialogCounter
+
+    -- Commodity purchases are a 2-step handshake (quote then confirm), unlike PlaceBid's single
+    -- call for regular items, so we need to track which listing is mid-purchase.
+    local pendingCommodityListing
 
     local function ConfirmBuyListing(listing)
         if not listing then
             return
         end
-        StaticPopup_Show(CONFIRM_DIALOG_KEY, Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
+        if listing.isCommodity then
+            local total = listing.buyout * listing.quantity
+            StaticPopup_Show(CONFIRM_COMMODITY_DIALOG_KEY, listing.quantity,
+                Arbitrage.FormatCoin(listing.buyout, 12) .. " each (~" .. Arbitrage.FormatCoin(total, 12) .. " total)",
+                listing)
+        else
+            StaticPopup_Show(CONFIRM_DIALOG_KEY, Arbitrage.FormatCoin(listing.buyout, 12), nil, listing)
+        end
     end
 
     local function ApplyBuyRowAppearance(row)
@@ -191,6 +203,43 @@ function AH.NewBuyPane()
         hideOnEscape = true,
         preferredIndex = 3,
     }
+
+    StaticPopupDialogs[CONFIRM_COMMODITY_DIALOG_KEY] = {
+        text = "Buy %dx for %s?",
+        button1 = "Buy",
+        button2 = "Cancel",
+        OnAccept = function(_, data)
+            pendingCommodityListing = data
+            C_AuctionHouse.StartCommoditiesPurchase(data.itemId, data.quantity)
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+
+    -- Commodity purchases are quoted then confirmed via events, not a single synchronous call.
+    local commodityPurchaseFrame = CreateFrame("Frame")
+    commodityPurchaseFrame:RegisterEvent("COMMODITY_PRICE_UPDATED")
+    commodityPurchaseFrame:RegisterEvent("COMMODITY_PRICE_UNAVAILABLE")
+    commodityPurchaseFrame:RegisterEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    commodityPurchaseFrame:RegisterEvent("COMMODITY_PURCHASE_FAILED")
+    commodityPurchaseFrame:SetScript("OnEvent", function(_, eventName)
+        if not pendingCommodityListing then
+            return
+        end
+        if eventName == "COMMODITY_PRICE_UPDATED" then
+            C_AuctionHouse.ConfirmCommoditiesPurchase(pendingCommodityListing.itemId, pendingCommodityListing.quantity)
+        elseif eventName == "COMMODITY_PRICE_UNAVAILABLE" then
+            C_AuctionHouse.CancelCommoditiesPurchase()
+            pendingCommodityListing = nil
+        elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" then
+            MarkListingPurchased(pendingCommodityListing)
+            pendingCommodityListing = nil
+        elseif eventName == "COMMODITY_PURCHASE_FAILED" then
+            pendingCommodityListing = nil
+        end
+    end)
 
     function pane.Create(frame, listPaneFrame)
         buyView = CreateFrame("Frame", nil, frame)
