@@ -76,6 +76,11 @@ local function GetItemDisplayName(entry)
     return C_Item.GetItemInfo(entry.itemId) or ("Item #" .. entry.itemId)
 end
 
+-- The bare GetItemQualityColor global is deprecated/absent on this client (it errors with
+-- "attempt to call a nil value"); C_Item.GetItemQualityColor is the modern replacement, same
+-- (r, g, b, hex) return shape.
+local GetItemQualityColor = C_Item.GetItemQualityColor or GetItemQualityColor
+
 -- None of GetItemDisplayName's paths embed quality coloring, so every name rendered in
 -- GameFontNormal's default (pale yellow) regardless of actual rarity - apply it uniformly here.
 local function GetItemQualityColorCode(itemId)
