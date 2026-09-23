@@ -88,8 +88,11 @@ local function GetItemQualityColorCode(itemId)
     if not quality then
         return ""
     end
+    -- hex is a bare 8-digit AARRGGBB string (no "|c" lead-in) - without prepending it ourselves,
+    -- it renders as literal text ("ff1eff00Item Name") instead of being parsed as a color code,
+    -- which also overflows the column width and wraps into the row below.
     local _, _, _, hex = GetItemQualityColor(quality)
-    return hex or ""
+    return hex and ("|c" .. hex) or ""
 end
 
 local function ShowRowTooltip(row)
