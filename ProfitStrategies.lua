@@ -1,8 +1,14 @@
 ---@class Arbitrage
 local Arbitrage = select(2, ...)
 
+-- Backed by the SavedVariable (not a plain table) so the last scan's results are still there
+-- immediately on login/reload instead of sitting empty until a new scan completes - previously
+-- this was a throwaway table, invisible only because Auctionator's own display was equally
+-- blank post-reload until Blizzard fixed SavedVariables persistence.
+Arbitrage_Profile.ProfitLists = Arbitrage_Profile.ProfitLists or {}
+
 ---@type table<string, table[]> profit list per registered strategy key
-Arbitrage.ProfitLists = {}
+Arbitrage.ProfitLists = Arbitrage_Profile.ProfitLists
 
 ---@type table<string, function> each strategy's ListPane refresh callback, set by ListPane.lua
 Arbitrage.ProfitListRefreshers = {}
