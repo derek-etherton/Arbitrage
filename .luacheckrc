@@ -26,7 +26,6 @@ globals = {
     "GetCoinTextureString",
     "GetItemQualityColor",
     "GetBuildInfo",
-    "date",
     "WOW_PROJECT_ID",
     "WOW_PROJECT_MAINLINE",
     "Auctionator",
