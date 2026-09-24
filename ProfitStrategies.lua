@@ -20,12 +20,17 @@ local function SummarizeProfitLists()
     return next(summary) and table.concat(summary, ", ") or "empty"
 end
 
+-- The PLAYER_LOGOUT print below fires an instant before /reload tears down the chat frame, so
+-- it's likely never actually visible - stash the same summary in the SavedVariable itself
+-- (a sibling key to ProfitLists, so it either survives alongside it or neither does) and print
+-- it back out on the NEXT load, where it's actually readable.
 print("Arbitrage: loaded ProfitLists from SavedVariables - " .. SummarizeProfitLists())
+print("Arbitrage: previous session's logout summary was - " .. tostring(Arbitrage_Profile.DebugLastLogoutSummary))
 
 local logoutWatcher = CreateFrame("Frame")
 logoutWatcher:RegisterEvent("PLAYER_LOGOUT")
 logoutWatcher:SetScript("OnEvent", function()
-    print("Arbitrage: saving ProfitLists on logout/reload - " .. SummarizeProfitLists())
+    Arbitrage_Profile.DebugLastLogoutSummary = SummarizeProfitLists()
 end)
 
 ---@type table<string, function> each strategy's ListPane refresh callback, set by ListPane.lua
