@@ -36,6 +36,7 @@ globals = {
     "assert.spy",
     "assert.are_same",
     "assert.is_nil",
+    "assert.is_not_nil",
     "assert.is_true",
     "assert.is_false",
     "describe",
