@@ -12,6 +12,17 @@ describe("ProfitStrategies persistence", function()
         return frame
     end
 
+    -- Identity pass-through: we're not testing Base64/CBOR's own correctness (that's Blizzard's
+    -- job), just that our code routes data through both encode steps and both decode steps.
+    local function identityEncodingUtil()
+        return {
+            SerializeCBOR = function(value) return {cbor = value} end,
+            DeserializeCBOR = function(value) return value.cbor end,
+            EncodeBase64 = function(value) return {base64 = value} end,
+            DecodeBase64 = function(value) return value.base64 end,
+        }
+    end
+
     local function load()
         Arbitrage = {}
         loadfile("Arbitrage.lua")("Arbitrage", Arbitrage)
@@ -26,31 +37,36 @@ describe("ProfitStrategies persistence", function()
     end)
 
     it("should default to an empty ProfitLists when nothing was saved", function()
-        _G.C_EncodingUtil = {SerializeCBOR = function() end, DeserializeCBOR = function() end}
+        _G.C_EncodingUtil = identityEncodingUtil()
 
         load()
 
         assert.are_same({}, Arbitrage.ProfitLists)
     end)
 
-    it("should decode Arbitrage_Profile.ProfitListsEncoded via C_EncodingUtil.DeserializeCBOR on load", function()
+    it("should decode Arbitrage_Profile.ProfitListsEncoded through DecodeBase64 then DeserializeCBOR on load", function()
         local decoded = {Disenchanting = {{itemId = 111}}}
         _G.C_EncodingUtil = {
             SerializeCBOR = function() end,
+            EncodeBase64 = function() end,
+            DecodeBase64 = spy.new(function(value) return value.base64 end),
             DeserializeCBOR = spy.new(function() return decoded end),
         }
-        _G.Arbitrage_Profile = {ProfitListsEncoded = "some-encoded-blob"}
+        _G.Arbitrage_Profile = {ProfitListsEncoded = {base64 = "cbor-bytes"}}
 
         load()
 
-        assert.spy(_G.C_EncodingUtil.DeserializeCBOR).was.called_with("some-encoded-blob")
+        assert.spy(_G.C_EncodingUtil.DecodeBase64).was.called_with({base64 = "cbor-bytes"})
+        assert.spy(_G.C_EncodingUtil.DeserializeCBOR).was.called_with("cbor-bytes")
         assert.are_same(decoded, Arbitrage.ProfitLists)
     end)
 
     it("should fall back to an empty ProfitLists if decoding fails", function()
         _G.C_EncodingUtil = {
             SerializeCBOR = function() end,
-            DeserializeCBOR = function() error("corrupt data") end,
+            EncodeBase64 = function() end,
+            DecodeBase64 = function() error("corrupt data") end,
+            DeserializeCBOR = function() end,
         }
         _G.Arbitrage_Profile = {ProfitListsEncoded = "garbage"}
 
@@ -68,9 +84,8 @@ describe("ProfitStrategies persistence", function()
         assert.are_same({}, Arbitrage.ProfitLists)
     end)
 
-    it("should serialize the current ProfitLists via C_EncodingUtil.SerializeCBOR when PLAYER_LOGOUT fires", function()
-        local serialize = spy.new(function() return "encoded-blob" end)
-        _G.C_EncodingUtil = {SerializeCBOR = serialize, DeserializeCBOR = function() end}
+    it("should encode via SerializeCBOR then EncodeBase64 and save the result when PLAYER_LOGOUT fires", function()
+        _G.C_EncodingUtil = identityEncodingUtil()
         load()
 
         Arbitrage.RegisterProfitStrategy("Disenchanting", function(listing) return listing.buyout + 100 end)
@@ -80,42 +95,40 @@ describe("ProfitStrategies persistence", function()
 
         loggedOutHandler()
 
-        assert.spy(serialize).was.called_with(Arbitrage.ProfitLists)
-        assert.are_same("encoded-blob", Arbitrage_Profile.ProfitListsEncoded)
+        assert.are_same({base64 = {cbor = Arbitrage.ProfitLists}}, Arbitrage_Profile.ProfitListsEncoded)
     end)
 
     it("should NOT overwrite the saved data on logout if this session never got valid data", function()
         -- Regression test: a session that fails to decode existing good data must not then
         -- blindly save its own empty ProfitLists over that data on its own next logout.
+        local serialize = spy.new(function() return "should-not-be-called" end)
         _G.C_EncodingUtil = {
-            SerializeCBOR = spy.new(function() return "should-not-be-called" end),
-            DeserializeCBOR = function() error("corrupt data") end,
+            SerializeCBOR = serialize,
+            EncodeBase64 = function() end,
+            DecodeBase64 = function() error("corrupt data") end,
+            DeserializeCBOR = function() end,
         }
         _G.Arbitrage_Profile = {ProfitListsEncoded = "original-good-data"}
         load()
 
         loggedOutHandler()
 
-        assert.spy(_G.C_EncodingUtil.SerializeCBOR).was_not.called()
+        assert.spy(serialize).was_not.called()
         assert.are_same("original-good-data", Arbitrage_Profile.ProfitListsEncoded)
     end)
 
     it("should still save on logout after a successful decode, even without a fresh scan", function()
-        _G.C_EncodingUtil = {
-            SerializeCBOR = spy.new(function() return "re-encoded" end),
-            DeserializeCBOR = function() return {Disenchanting = {}} end,
-        }
-        _G.Arbitrage_Profile = {ProfitListsEncoded = "original-good-data"}
+        _G.C_EncodingUtil = identityEncodingUtil()
+        _G.Arbitrage_Profile = {ProfitListsEncoded = {base64 = {cbor = {Disenchanting = {}}}}}
         load()
 
         loggedOutHandler()
 
-        assert.spy(_G.C_EncodingUtil.SerializeCBOR).was.called()
-        assert.are_same("re-encoded", Arbitrage_Profile.ProfitListsEncoded)
+        assert.are_same({base64 = {cbor = {Disenchanting = {}}}}, Arbitrage_Profile.ProfitListsEncoded)
     end)
 
     it("should call the registered refresher and rebuild ProfitLists when RefreshAllProfitLists runs", function()
-        _G.C_EncodingUtil = {SerializeCBOR = function() end, DeserializeCBOR = function() end}
+        _G.C_EncodingUtil = identityEncodingUtil()
         load()
 
         local refresh = spy.new(function() end)
