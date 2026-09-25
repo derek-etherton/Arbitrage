@@ -16,6 +16,12 @@ Arbitrage.ProfitListRefreshers = {}
 
 local valueFunctions = {}
 
+-- Only true once this session actually has trustworthy data - either decoded successfully from
+-- the SavedVariable, or freshly rebuilt from a scan. Guards the PLAYER_LOGOUT save below: without
+-- this, a session that fails to decode existing good data (leaving ProfitLists at its {} default)
+-- would happily overwrite that good data with the empty table on its own next logout.
+local hasValidData = false
+
 ---@param key string unique strategy id, e.g. "Disenchanting"
 ---@param getValue fun(listing: table): number|nil
 function Arbitrage.RegisterProfitStrategy(key, getValue)
@@ -30,6 +36,7 @@ function Arbitrage.RefreshAllProfitLists(listings)
             refresh()
         end
     end
+    hasValidData = true
 end
 
 -- Temporary diagnostic while confirming this survives a reload: report exactly what happened
@@ -48,6 +55,7 @@ else
         loadDiagnostic = string.format("decode returned a %s, not a table (%d bytes saved)", type(decodedOrError), encodedLength)
     else
         Arbitrage.ProfitLists = decodedOrError
+        hasValidData = true
         local summary = {}
         for key, profitList in pairs(Arbitrage.ProfitLists) do
             table.insert(summary, string.format("%s: %d", key, #profitList))
@@ -62,6 +70,8 @@ if C_EncodingUtil then
     local logoutWatcher = CreateFrame("Frame")
     logoutWatcher:RegisterEvent("PLAYER_LOGOUT")
     logoutWatcher:SetScript("OnEvent", function()
-        Arbitrage_Profile.ProfitListsEncoded = C_EncodingUtil.SerializeCBOR(Arbitrage.ProfitLists)
+        if hasValidData then
+            Arbitrage_Profile.ProfitListsEncoded = C_EncodingUtil.SerializeCBOR(Arbitrage.ProfitLists)
+        end
     end)
 end

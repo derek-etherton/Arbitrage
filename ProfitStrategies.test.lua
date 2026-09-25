@@ -84,6 +84,36 @@ describe("ProfitStrategies persistence", function()
         assert.are_same("encoded-blob", Arbitrage_Profile.ProfitListsEncoded)
     end)
 
+    it("should NOT overwrite the saved data on logout if this session never got valid data", function()
+        -- Regression test: a session that fails to decode existing good data must not then
+        -- blindly save its own empty ProfitLists over that data on its own next logout.
+        _G.C_EncodingUtil = {
+            SerializeCBOR = spy.new(function() return "should-not-be-called" end),
+            DeserializeCBOR = function() error("corrupt data") end,
+        }
+        _G.Arbitrage_Profile = {ProfitListsEncoded = "original-good-data"}
+        load()
+
+        loggedOutHandler()
+
+        assert.spy(_G.C_EncodingUtil.SerializeCBOR).was_not.called()
+        assert.are_same("original-good-data", Arbitrage_Profile.ProfitListsEncoded)
+    end)
+
+    it("should still save on logout after a successful decode, even without a fresh scan", function()
+        _G.C_EncodingUtil = {
+            SerializeCBOR = spy.new(function() return "re-encoded" end),
+            DeserializeCBOR = function() return {Disenchanting = {}} end,
+        }
+        _G.Arbitrage_Profile = {ProfitListsEncoded = "original-good-data"}
+        load()
+
+        loggedOutHandler()
+
+        assert.spy(_G.C_EncodingUtil.SerializeCBOR).was.called()
+        assert.are_same("re-encoded", Arbitrage_Profile.ProfitListsEncoded)
+    end)
+
     it("should call the registered refresher and rebuild ProfitLists when RefreshAllProfitLists runs", function()
         _G.C_EncodingUtil = {SerializeCBOR = function() end, DeserializeCBOR = function() end}
         load()
