@@ -14,6 +14,7 @@ globals = {
     "C_Item",
     "C_Timer",
     "C_CurrencyInfo",
+    "C_EncodingUtil",
     "GameTooltip",
     "GameTooltip_Hide",
     "StaticPopupDialogs",

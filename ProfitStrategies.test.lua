@@ -1,6 +1,16 @@
 describe("ProfitStrategies persistence", function()
     ---@type Arbitrage
     local Arbitrage
+    local loggedOutHandler
+
+    local function mockCreateFrame()
+        local frame = {}
+        frame.RegisterEvent = function() end
+        frame.SetScript = function(_, _, handler)
+            loggedOutHandler = handler
+        end
+        return frame
+    end
 
     local function load()
         Arbitrage = {}
@@ -11,79 +21,83 @@ describe("ProfitStrategies persistence", function()
 
     before_each(function()
         _G.Arbitrage_Profile = nil
-        load()
+        _G.CreateFrame = mockCreateFrame
+        loggedOutHandler = nil
     end)
 
-    it("should round-trip a full entry through Encode/Decode", function()
-        local original = {
-            {
-                itemId = 111,
-                itemLink = "|cffffffff|Hitem:111:0:0:0:0:0:0:0:80:0:0:0:0|h[Test Item]|h|r",
-                quantity = 2, buyout = 500, itemLevel = 40, itemSuffix = 0, battlePetSpeciesID = 0,
-                value = 800, profit = 300, sortingIndex = 1,
-            },
-        }
+    it("should default to an empty ProfitLists when nothing was saved", function()
+        _G.C_EncodingUtil = {SerializeCBOR = function() end, DeserializeCBOR = function() end}
 
-        local decoded = Arbitrage.DecodeProfitList(Arbitrage.EncodeProfitList(original))
-
-        assert.are_same(original, decoded)
-    end)
-
-    it("should round-trip an entry with no itemLink", function()
-        local original = {
-            {
-                itemId = 222, quantity = 1, buyout = 100, itemLevel = 0, itemSuffix = 605,
-                battlePetSpeciesID = 0, value = 500, profit = 400, sortingIndex = 1,
-            },
-        }
-
-        local decoded = Arbitrage.DecodeProfitList(Arbitrage.EncodeProfitList(original))
-
-        assert.are_same(original, decoded)
-    end)
-
-    it("should round-trip multiple entries in order", function()
-        local original = {
-            {itemId = 1, quantity = 1, buyout = 10, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0, value = 20, profit = 10, sortingIndex = 1},
-            {itemId = 2, quantity = 1, buyout = 20, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0, value = 40, profit = 20, sortingIndex = 2},
-        }
-
-        local decoded = Arbitrage.DecodeProfitList(Arbitrage.EncodeProfitList(original))
-
-        assert.are_same(original, decoded)
-    end)
-
-    it("should round-trip an empty list", function()
-        assert.are_same({}, Arbitrage.DecodeProfitList(Arbitrage.EncodeProfitList({})))
-    end)
-
-    it("should decode nil or an empty string as an empty list", function()
-        assert.are_same({}, Arbitrage.DecodeProfitList(nil))
-        assert.are_same({}, Arbitrage.DecodeProfitList(""))
-    end)
-
-    it("should seed Arbitrage.ProfitLists from Arbitrage_Profile.ProfitListsEncoded on load", function()
-        _G.Arbitrage_Profile = {
-            ProfitListsEncoded = {
-                Disenchanting = "111" .. "\7" .. "1" .. "\7" .. "100" .. "\7" .. "0" .. "\7" .. "0"
-                    .. "\7" .. "0" .. "\7" .. "500" .. "\7" .. "400" .. "\7" .. "1" .. "\7" .. "",
-            },
-        }
         load()
 
-        assert.are_same(1, #Arbitrage.ProfitLists.Disenchanting)
-        assert.are_same(111, Arbitrage.ProfitLists.Disenchanting[1].itemId)
+        assert.are_same({}, Arbitrage.ProfitLists)
     end)
 
-    it("should persist the encoded form whenever RefreshAllProfitLists rebuilds a list", function()
+    it("should decode Arbitrage_Profile.ProfitListsEncoded via C_EncodingUtil.DeserializeCBOR on load", function()
+        local decoded = {Disenchanting = {{itemId = 111}}}
+        _G.C_EncodingUtil = {
+            SerializeCBOR = function() end,
+            DeserializeCBOR = spy.new(function() return decoded end),
+        }
+        _G.Arbitrage_Profile = {ProfitListsEncoded = "some-encoded-blob"}
+
+        load()
+
+        assert.spy(_G.C_EncodingUtil.DeserializeCBOR).was.called_with("some-encoded-blob")
+        assert.are_same(decoded, Arbitrage.ProfitLists)
+    end)
+
+    it("should fall back to an empty ProfitLists if decoding fails", function()
+        _G.C_EncodingUtil = {
+            SerializeCBOR = function() end,
+            DeserializeCBOR = function() error("corrupt data") end,
+        }
+        _G.Arbitrage_Profile = {ProfitListsEncoded = "garbage"}
+
+        load()
+
+        assert.are_same({}, Arbitrage.ProfitLists)
+    end)
+
+    it("should not error when C_EncodingUtil is unavailable", function()
+        _G.C_EncodingUtil = nil
+
+        local ok = pcall(load)
+
+        assert.is_true(ok)
+        assert.are_same({}, Arbitrage.ProfitLists)
+    end)
+
+    it("should serialize the current ProfitLists via C_EncodingUtil.SerializeCBOR when PLAYER_LOGOUT fires", function()
+        local serialize = spy.new(function() return "encoded-blob" end)
+        _G.C_EncodingUtil = {SerializeCBOR = serialize, DeserializeCBOR = function() end}
+        load()
+
         Arbitrage.RegisterProfitStrategy("Disenchanting", function(listing) return listing.buyout + 100 end)
+        Arbitrage.RefreshAllProfitLists({
+            {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
+        })
+
+        loggedOutHandler()
+
+        assert.spy(serialize).was.called_with(Arbitrage.ProfitLists)
+        assert.are_same("encoded-blob", Arbitrage_Profile.ProfitListsEncoded)
+    end)
+
+    it("should call the registered refresher and rebuild ProfitLists when RefreshAllProfitLists runs", function()
+        _G.C_EncodingUtil = {SerializeCBOR = function() end, DeserializeCBOR = function() end}
+        load()
+
+        local refresh = spy.new(function() end)
+        Arbitrage.RegisterProfitStrategy("Disenchanting", function(listing) return listing.buyout + 100 end)
+        Arbitrage.ProfitListRefreshers.Disenchanting = refresh
 
         Arbitrage.RefreshAllProfitLists({
             {itemId = 111, itemLink = "linkA", quantity = 1, buyout = 100, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0},
         })
 
-        assert.is_not_nil(Arbitrage_Profile.ProfitListsEncoded.Disenchanting)
-        local decoded = Arbitrage.DecodeProfitList(Arbitrage_Profile.ProfitListsEncoded.Disenchanting)
-        assert.are_same(111, decoded[1].itemId)
+        assert.are_same(1, #Arbitrage.ProfitLists.Disenchanting)
+        assert.are_same(111, Arbitrage.ProfitLists.Disenchanting[1].itemId)
+        assert.spy(refresh).was.called()
     end)
 end)
